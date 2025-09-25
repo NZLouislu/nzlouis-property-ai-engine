@@ -93,7 +93,7 @@ def fetch_property_details(property_url, title, city, suburb):
         return property_data, history_data  # Return the data for insertion
 
     else:
-        print(f"Failed to fetch details for: {property_url}")
+        print(f"❌ Failed to fetch details for: {property_url}")
         return None, None
 
 # Step 3: Parse sold details

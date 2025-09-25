@@ -91,7 +91,7 @@ def fetch_property_details(property_url, title):
             print(f"{key}: {value}")
 
     else:
-        print(f"Failed to fetch details for: {property_url}")
+        print(f"❌ Failed to fetch details for: {property_url}")
 
 # Step 3: Parse sold details (remove 'Last Sold on' and keep the correct date and price)
 def parse_sold_details(soup):
