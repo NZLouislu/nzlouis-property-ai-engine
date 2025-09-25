@@ -38,4 +38,4 @@ jobs:
           playwright install
 
       - name: Run scraper
-        run: python propert_wellington.py
+        run: python property_wellington.py

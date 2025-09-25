@@ -2,8 +2,7 @@ from playwright.sync_api import sync_playwright, TimeoutError
 import time
 import random
 
-from config.redis_config import add_real_estate_to_redis, check_real_estate_in_redis, create_redis_client
-from config.supabase_config import insert_real_estate
+from config.supabase_config import insert_real_estate, create_supabase_client
 
 def handle_dialog(dialog):
     print(f"Dialog message: {dialog.message}")
@@ -107,8 +106,24 @@ def fetch_addresses(page, url):
 
     return addresses
 
+def check_real_estate_in_supabase(address: str) -> bool:
+    """
+    Check if a real estate property already exists in the Supabase database.
+    """
+    try:
+        supabase = create_supabase_client()
+        response = supabase.table('real_estate').select('id').eq('address', address).limit(1).execute()
+        
+        if response.data and len(response.data) > 0:
+            print(f"Property already exists in database: {address}")
+            return True
+        return False
+    except Exception as e:
+        print(f"Error checking property in database: {e}")
+        # If there's an error checking, we assume it doesn't exist to avoid missing data
+        return False
+
 def scrape_properties(main_url, max_pages):
-    redis_client = create_redis_client()  # Instantiate the Redis client
     all_addresses = []
 
     with sync_playwright() as p:
@@ -137,13 +152,12 @@ def scrape_properties(main_url, max_pages):
                 print("Addresses found on this page:")
                 for addr in addresses:
                     print(f"  - {addr}")
-                    if not check_real_estate_in_redis(redis_client, addr):
+                    if not check_real_estate_in_supabase(addr):
                         # 插入到Supabase中
                         insert_real_estate(addr, "for Sale")  # 假设状态为 "For Sale"
-                        # 将地址添加到Redis，避免重复
-                        add_real_estate_to_redis(redis_client, addr)
+                        print(f"Added new property to database: {addr}")
                     else:
-                        print(f"Address {addr} already exists in Redis. Skipping...")
+                        print(f"Property {addr} already exists in database. Skipping...")
             else:
                 print(f"No addresses found on page {page_num}. Continuing to next page.")
             

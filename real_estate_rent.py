@@ -22,7 +22,6 @@ logging.basicConfig(
 # Create logger
 logger = logging.getLogger(__name__)
 
-from config.redis_config import add_real_estate_rent_to_redis, check_real_estate_rent_in_redis, create_redis_client
 from config.supabase_config import insert_real_estate_rent, create_supabase_client
 
 # Function to create scraping progress table if it doesn't exist
@@ -246,6 +245,24 @@ def fetch_addresses(page, url):
 
     return addresses
 
+def check_real_estate_rent_in_supabase(address: str) -> bool:
+    """
+    Check if a real estate rental property already exists in the Supabase database.
+    """
+    try:
+        supabase = create_supabase_client()
+        response = supabase.table('real_estate_rent').select('id').eq('address', address).limit(1).execute()
+        
+        if response.data and len(response.data) > 0:
+            logger.info(f"Rental property already exists in database: {address}")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Error checking rental property in database: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+        # If there's an error checking, we assume it doesn't exist to avoid missing data
+        return False
+
 def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
     """
     Scrape properties with progress tracking and time limit.
@@ -255,7 +272,8 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
         max_pages (int): Maximum number of pages to scrape
         max_runtime_hours (float): Maximum runtime in hours before stopping (default 5.5 hours)
     """
-    redis_client = create_redis_client()  # Instantiate the Redis client
+    # Remove Redis client
+    # redis_client = create_redis_client()  # Instantiate the Redis client
     all_addresses = []
     
     # Create progress table if it doesn't exist
@@ -309,13 +327,14 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                         for addr in addresses:
                             print(f"  - {addr}")
                             try:
-                                if not check_real_estate_rent_in_redis(redis_client, addr):
+                                # Use Supabase to check for duplicates instead of Redis
+                                if not check_real_estate_rent_in_supabase(addr):
                                     # Insert into Supabase
                                     insert_real_estate_rent(addr, "for rent")  # Assume status is "For rent"
-                                    # Add address to Redis to avoid duplicates
-                                    add_real_estate_rent_to_redis(redis_client, addr)
+                                    # No need to add to Redis anymore
+                                    print(f"Added new rental property to database: {addr}")
                                 else:
-                                    print(f"Address {addr} already exists in Redis. Skipping...")
+                                    print(f"Rental property {addr} already exists in database. Skipping...")
                             except Exception as e:
                                 logger.error(f"Error processing address {addr}: {e}")
                                 logger.error(f"Error details: {traceback.format_exc()}")

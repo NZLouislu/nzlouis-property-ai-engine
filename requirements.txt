@@ -5,3 +5,4 @@ python-dateutil==2.8.2    # For flexible date parsing
 playwright>=1.33.0
 # greenlet>=3.1.0
 beautifulsoup4>=4.12.2    # BeautifulSoup HTML parser
+# upstash-redis==1.3.0      # Redis client for Upstash (no longer needed)
