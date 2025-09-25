@@ -1,0 +1,11 @@
+/config/__pycache__
+/__pycache__
+/.venv
+.vscode
+/.idx/
+.env
+shell.nix
+/config/
+/property_forecast_env/
+.qoder/
+/tasks/

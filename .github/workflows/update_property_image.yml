@@ -1,0 +1,40 @@
+name: Update Property Images
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每30分钟检查一次，确保任务能快速继续执行
+    - cron: "*/30 * * * *"
+
+# 添加并发控制，确保同一时间只有一个工作流实例在运行
+concurrency:
+  group: update-property-images
+  cancel-in-progress: false
+
+jobs:
+  update-images:
+    runs-on: ubuntu-latest
+
+    env:
+      UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+      UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.12
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install
+
+      - name: Run image updater
+        run: python property_image.py update_images
+        continue-on-error: true # Continue even if there's an error, so we can see the logs

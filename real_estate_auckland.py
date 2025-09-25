@@ -1,0 +1,383 @@
+from playwright.sync_api import sync_playwright, TimeoutError
+import time
+import random
+import os
+from dotenv import load_dotenv
+import traceback
+import logging
+
+# Load environment variables
+load_dotenv()
+
+from config.redis_config import add_real_estate_to_redis, check_real_estate_in_redis, create_redis_client
+from config.supabase_config import insert_real_estate, create_supabase_client
+
+# Set up logging configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("real_estate_auckland.log"),
+        logging.StreamHandler()
+    ]
+)
+
+# Create logger
+logger = logging.getLogger(__name__)
+
+# Function to create scraping progress table if it doesn't exist
+def create_scraping_progress_table():
+    """
+    Create a table to track scraping progress.
+    """
+    supabase = create_supabase_client()
+    try:
+        # Check if the scraping_progress table exists by trying to select from it
+        response = supabase.table('scraping_progress').select('*').limit(1).execute()
+        logger.info("Scraping progress table already exists.")
+    except Exception as e:
+        logger.error(f"Scraping progress table may not exist: {e}")
+        logger.info("Please ensure the scraping_progress table exists in your Supabase database with the following structure:")
+        logger.info("- id (int, primary key)")
+        logger.info("- last_processed_id (text)")
+        logger.info("- batch_size (int)")
+        logger.info("- updated_at (timestamp)")
+
+# Function to get the last processed page from the progress table
+def get_last_processed_page():
+    """
+    Get the last processed page number from the progress table for Auckland real estate.
+    """
+    supabase = create_supabase_client()
+    try:
+        # Try to get the record with id=2 for Auckland real estate
+        response = supabase.table('scraping_progress').select('last_processed_id').eq('id', 2).execute()
+        if response.data and len(response.data) > 0:
+            last_processed_id = response.data[0].get('last_processed_id')
+            # Return the page number if it's not None or empty
+            if last_processed_id:
+                page_num = int(last_processed_id)
+                logger.info(f"Resuming from page: {page_num}")
+                return page_num
+            else:
+                # If last_processed_id is None or empty, it means we're starting from the beginning
+                logger.info("Starting from the beginning (empty last_processed_id)")
+                return 0
+        
+        # If no record with id=2, it means we're starting from the beginning
+        logger.info("Starting from the beginning (no progress records found for Auckland)")
+        return 0
+    except Exception as e:
+        logger.error(f"Error getting last processed page: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+        return 0
+
+# Function to update the last processed page in the progress table
+def update_last_processed_page(last_page):
+    """
+    Update the last processed page number in the progress table for Auckland real estate.
+    """
+    supabase = create_supabase_client()
+    try:
+        # First, try to update the existing record with id=2 for Auckland real estate
+        response = supabase.table('scraping_progress').update({
+            'last_processed_id': str(last_page),
+            'batch_size': 1000,  # Default batch size
+            'updated_at': 'now()'
+        }).eq('id', 2).execute()
+        
+        # Check if the update was successful
+        if response.data:
+            logger.info(f"Updated last processed page to: {last_page}")
+        else:
+            # If no record was updated, insert a new one with id=2
+            data = {
+                'id': 2,  # Use ID 2 for Auckland real estate progress
+                'last_processed_id': str(last_page),
+                'batch_size': 1000,  # Default batch size
+                'updated_at': 'now()'
+            }
+            response = supabase.table('scraping_progress').insert(data).execute()
+            
+            if response.data:
+                logger.info(f"Inserted new record with last processed page: {last_page}")
+            else:
+                logger.error(f"Failed to insert/update last processed page: {last_page}")
+    except Exception as e:
+        logger.error(f"Error updating last processed page: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
+def handle_dialog(dialog):
+    """
+    Handle dialog boxes that may appear during scraping.
+    """
+    try:
+        print(f"Dialog message: {dialog.message}")
+        dialog.accept()
+    except Exception as e:
+        logger.error(f"Error handling dialog: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
+def scroll_to_bottom(page):
+    """
+    Scroll to the bottom of the page to load all content.
+    """
+    try:
+        print("开始模拟鼠标下滑操作...")
+        last_height = page.evaluate("document.body.scrollHeight")
+        while True:
+            print(f"  - 当前页面高度: {last_height}，继续下滑...")
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            time.sleep(random.uniform(1, 2))  # Wait for page to load
+            new_height = page.evaluate("document.body.scrollHeight")
+            if new_height == last_height:
+                print("  - 已到达页面底部")
+                break
+            last_height = new_height
+
+            # Check if pagination navigation appeared
+            if page.query_selector('nav[aria-label="Pagination"]') or page.query_selector('div[class*="pagination"]'):
+                print("  - 检测到页码导航，停止滚动")
+                break
+    except Exception as e:
+        logger.error(f"Error scrolling to bottom: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
+def simulate_user_behavior(page):
+    """
+    Simulate user behavior to avoid anti-scraping mechanisms.
+    """
+    try:
+        scroll_to_bottom(page)
+        
+        # Randomly click on property cards
+        print("模拟查看房产卡片...")
+        card_selectors = [
+            'div[class*="listing-tile"]',
+            'div[class*="property-card"]',
+            'div[class*="search-result"]'
+        ]
+        for selector in card_selectors:
+            cards = page.query_selector_all(selector)
+            if cards:
+                for _ in range(min(3, len(cards))):
+                    card = random.choice(cards)
+                    try:
+                        card.scroll_into_view_if_needed()
+                        card.hover()
+                        print(f"  - 悬停在一个房产卡片上")
+                        time.sleep(random.uniform(0.5, 1.5))
+                    except Exception as e:
+                        logger.warning(f"Error hovering over card: {e}")
+                        pass
+                break
+
+        # Additional scrolling operations
+        print("模拟额外的滚动操作")
+        for i in range(10):
+            scroll_distance = random.randint(500, 1500)
+            page.evaluate(f"window.scrollBy(0, {scroll_distance})")
+            print(f"  - 向下滚动 {scroll_distance} 像素")
+            time.sleep(random.uniform(1, 2))
+
+        # Scroll to bottom again
+        print("再次滚动到页面底部")
+        scroll_to_bottom(page)
+    except Exception as e:
+        logger.error(f"Error simulating user behavior: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
+def fetch_addresses(page, url):
+    """
+    Fetch addresses from the given URL.
+    """
+    try:
+        page.goto(url, wait_until="networkidle", timeout=60000)
+    except TimeoutError as e:
+        logger.warning(f"Timeout while loading {url}. Continuing with partial page load. Error: {e}")
+    except Exception as e:
+        logger.error(f"Error navigating to {url}: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+        return []
+
+    try:
+        page.wait_for_selector('button:has-text("Accept")', timeout=5000)
+        page.click('button:has-text("Accept")')
+        print("Clicked cookie consent button.")
+    except Exception as e:
+        logger.info("No cookie consent button found or unable to click it.")
+        pass
+
+    # Simulate user behavior
+    simulate_user_behavior(page)
+
+    addresses = []
+    try:
+        selectors = [
+            'h3[data-test="standard-tile__search-result__address"]',
+            '.standard-tile__search-result__address',
+            'h3[class*="address"]',
+            'div[class*="address"]',
+            'div[class*="listing-tile"] h3',
+            'div[class*="listing-tile"] div[class*="address"]'
+        ]
+        
+        for selector in selectors:
+            try:
+                address_elements = page.query_selector_all(selector)
+                if address_elements:
+                    addresses = [element.inner_text().strip() for element in address_elements if element.inner_text().strip()]
+                    if addresses:
+                        print(f"Found {len(addresses)} addresses using selector: {selector}")
+                        break
+            except Exception as e:
+                logger.warning(f"Error using selector {selector}: {e}")
+                continue
+        
+        if not addresses:
+            logger.warning(f"No address elements found on {url} using any of the selectors.")
+            print("Page Title:", page.title())
+            print("Current URL:", page.url)
+            # Only log first 1000 characters of content to avoid huge logs
+            print("HTML content:", page.content()[:1000])
+    except Exception as e:
+        logger.error(f"An error occurred while scraping {url}: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
+    return addresses
+
+def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
+    """
+    Scrape properties with progress tracking and time limit.
+    
+    Args:
+        main_url (str): The base URL to scrape
+        max_pages (int): Maximum number of pages to scrape
+        max_runtime_hours (float): Maximum runtime in hours before stopping (default 5.5 hours)
+    """
+    redis_client = create_redis_client()  # Instantiate the Redis client
+    all_addresses = []
+    
+    # Create progress table if it doesn't exist
+    create_scraping_progress_table()
+    
+    # Get the last processed page to resume from where we left off
+    start_page = get_last_processed_page()
+    
+    # Calculate maximum runtime
+    start_time = time.time()
+    max_runtime_seconds = max_runtime_hours * 3600  # Convert hours to seconds
+    
+    browser = None
+    context = None
+    page = None
+    
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                ],
+            )
+
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            )
+            page = context.new_page()
+            page.on("dialog", handle_dialog)
+
+            for page_num in range(start_page + 1, max_pages + 1):
+                # Check if we've exceeded the maximum runtime
+                elapsed_time = time.time() - start_time
+                if elapsed_time > max_runtime_seconds:
+                    logger.info(f"Maximum runtime of {max_runtime_hours} hours reached. Stopping...")
+                    # Save progress before exiting
+                    update_last_processed_page(page_num - 1)
+                    break
+                
+                try:
+                    url = f"{main_url}?page={page_num}"
+                    print(f"\nScraping page {page_num}: {url}")
+                    
+                    addresses = fetch_addresses(page, url)
+                    if addresses:
+                        all_addresses.extend(addresses)
+                        print(f"Found {len(addresses)} addresses on page {page_num}")
+                        print("Addresses found on this page:")
+                        for addr in addresses:
+                            print(f"  - {addr}")
+                            try:
+                                if not check_real_estate_in_redis(redis_client, addr):
+                                    # Insert into Supabase
+                                    insert_real_estate(addr, "for Sale")  # Assume status is "For Sale"
+                                    # Add address to Redis to avoid duplicates
+                                    add_real_estate_to_redis(redis_client, addr)
+                                else:
+                                    print(f"Address {addr} already exists in Redis. Skipping...")
+                            except Exception as e:
+                                logger.error(f"Error processing address {addr}: {e}")
+                                logger.error(f"Error details: {traceback.format_exc()}")
+                                # Continue with next address instead of stopping
+                                continue
+                    else:
+                        print(f"No addresses found on page {page_num}. Continuing to next page.")
+                    
+                    # Update progress after successfully processing a page
+                    update_last_processed_page(page_num)
+                    
+                    if page_num < max_pages:
+                        delay = random.uniform(5, 10)
+                        print(f"Waiting for {delay:.2f} seconds before next request...")
+                        time.sleep(delay)
+                
+                except Exception as e:
+                    logger.error(f"Error processing page {page_num}: {e}")
+                    logger.error(f"Error details: {traceback.format_exc()}")
+                    # Save progress and continue with next page instead of stopping
+                    update_last_processed_page(page_num)
+                    continue
+
+    except Exception as e:
+        logger.error(f"Error in scraping process: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+        # Save progress before exiting
+        if 'page_num' in locals():
+            update_last_processed_page(page_num)
+    finally:
+        # Ensure browser is closed properly
+        try:
+            if browser:
+                browser.close()
+                logger.info("Browser closed successfully")
+        except Exception as e:
+            logger.error(f"Error closing browser: {e}")
+            logger.error(f"Error details: {traceback.format_exc()}")
+
+def main():
+    """
+    Main function to start the scraping process.
+    """
+    try:
+        # Read base URL from environment variables and append /auckland
+        base_url = os.getenv("REALESTATE_URL")
+        if not base_url:
+            raise ValueError("REALESTATE_URL environment variable is not set")
+        main_url = f"{base_url}/auckland"
+        
+        max_pages = 500
+        scrape_properties(main_url, max_pages)
+        logger.info("Scraping process completed successfully")
+    except Exception as e:
+        logger.error(f"Error in main function: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+        raise
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        logger.error(f"Unexpected error in script execution: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+        exit(1)

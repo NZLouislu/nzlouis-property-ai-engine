@@ -1,0 +1,9 @@
+supabase==2.15.1          # Python client library for Supabase
+python-dotenv==1.0.0      # For loading environment variables from a .env file
+requests==2.31.0          # HTTP library for making requests
+upstash-redis==1.3.0      # Redis client for Upstash
+python-dateutil==2.8.2    # For flexible date parsing
+playwright>=1.33.0
+# greenlet>=3.1.0
+beautifulsoup4>=4.12.2    # BeautifulSoup HTML parser
+
