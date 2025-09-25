@@ -106,6 +106,55 @@ def update_last_processed_page(last_page):
         logger.error(f"Error updating last processed page: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
 
+# Function to check if another instance is already running
+def is_already_running():
+    """
+    Check if another instance of the rent scraper is already running.
+    Uses the scraping_progress table to store a lock timestamp.
+    """
+    supabase = create_supabase_client()
+    try:
+        # Get the lock timestamp for rent scraper (id=4)
+        response = supabase.table('scraping_progress').select('updated_at').eq('id', 4).execute()
+        if response.data and len(response.data) > 0:
+            updated_at_str = response.data[0].get('updated_at')
+            if updated_at_str:
+                # Parse the timestamp
+                from datetime import datetime, timezone
+                updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
+                # Check if the lock is still valid (less than 6 hours old)
+                current_time = datetime.now(timezone.utc)
+                time_diff = current_time - updated_at
+                if time_diff.total_seconds() < 6 * 3600:  # 6 hours in seconds
+                    logger.info("Another rent scraper instance is already running. Skipping execution.")
+                    return True
+        return False
+    except Exception as e:
+        logger.error(f"Error checking if rent scraper is already running: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+        # In case of error, assume not running to avoid blocking legitimate runs
+        return False
+
+# Function to update the lock timestamp
+def update_lock_timestamp():
+    """
+    Update the lock timestamp to indicate the process is running.
+    """
+    supabase = create_supabase_client()
+    try:
+        # Update the updated_at timestamp for rent scraper (id=4)
+        response = supabase.table('scraping_progress').update({
+            'updated_at': 'now()'
+        }).eq('id', 4).execute()
+        
+        if response.data:
+            logger.info("Rent scraper lock timestamp updated successfully.")
+        else:
+            logger.warning("Failed to update rent scraper lock timestamp.")
+    except Exception as e:
+        logger.error(f"Error updating rent scraper lock timestamp: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
 def handle_dialog(dialog):
     """
     Handle dialog boxes that may appear during scraping.
@@ -272,6 +321,14 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
         max_pages (int): Maximum number of pages to scrape
         max_runtime_hours (float): Maximum runtime in hours before stopping (default 5.5 hours)
     """
+    # Check if another instance is already running
+    if is_already_running():
+        logger.info("Another rent scraper instance is already running. Exiting.")
+        return
+    
+    # Update lock timestamp to indicate we're running
+    update_lock_timestamp()
+    
     # Remove Redis client
     # redis_client = create_redis_client()  # Instantiate the Redis client
     all_addresses = []
@@ -315,6 +372,9 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                     update_last_processed_page(page_num - 1)
                     break
                 
+                # Update lock timestamp periodically to indicate we're still running
+                update_lock_timestamp()
+                
                 try:
                     url = f"{main_url}?page={page_num}"
                     print(f"\nScraping page {page_num}: {url}")
@@ -328,9 +388,9 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                             print(f"  - {addr}")
                             try:
                                 # Use Supabase to check for duplicates instead of Redis
-                                if not check_real_estate_rent_in_supabase(addr):
+                                if not check_real_estate_in_supabase(addr):
                                     # Insert into Supabase
-                                    insert_real_estate_rent(addr, "for rent")  # Assume status is "For rent"
+                                    insert_real_estate(addr, "To Rent")  # Status is "To Rent" for rental properties
                                     # No need to add to Redis anymore
                                     print(f"Added new rental property to database: {addr}")
                                 else:

@@ -8,8 +8,8 @@ on:
 
 # 添加并发控制，确保同一时间只有一个工作流实例在运行
 concurrency:
-  group: scrape-realestate-rent
-  cancel-in-progress: false
+  group: scrape-realestate-rent-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   scrape:

@@ -8,8 +8,8 @@ on:
 
 # 添加并发控制，确保同一时间只有一个工作流实例在运行
 concurrency:
-  group: update-property-images
-  cancel-in-progress: false
+  group: update-property-images-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   update-images:
@@ -35,4 +35,3 @@ jobs:
 
       - name: Run image updater
         run: python property_image.py update_images
-        continue-on-error: true # Continue even if there's an error, so we can see the logs

@@ -190,16 +190,46 @@ def is_already_running():
     """
     supabase = create_supabase_client()
     try:
-        # Get the latest lock timestamp
-        response = supabase.table('scraping_progress').select('updated_at').order('id', desc=True).limit(1).execute()
+        # Get the lock timestamp for image updater (id=1)
+        response = supabase.table('scraping_progress').select('updated_at').eq('id', 1).execute()
         if response.data and len(response.data) > 0:
-            # Check if the lock is still valid (less than 6 hours old)
-            # This is a simple check - in production, you might want to use a more robust locking mechanism
-            return False  # For now, we'll allow concurrent runs
+            updated_at_str = response.data[0].get('updated_at')
+            if updated_at_str:
+                # Parse the timestamp
+                from datetime import datetime, timezone
+                updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
+                # Check if the lock is still valid (less than 6 hours old)
+                current_time = datetime.now(timezone.utc)
+                time_diff = current_time - updated_at
+                if time_diff.total_seconds() < 6 * 3600:  # 6 hours in seconds
+                    logger.info("Another instance is already running. Skipping execution.")
+                    return True
         return False
     except Exception as e:
-        print(f"Error checking if already running: {e}")
+        logger.error(f"Error checking if already running: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+        # In case of error, assume not running to avoid blocking legitimate runs
         return False
+
+# Function to update the lock timestamp
+def update_lock_timestamp():
+    """
+    Update the lock timestamp to indicate the process is running.
+    """
+    supabase = create_supabase_client()
+    try:
+        # Update the updated_at timestamp for image updater (id=1)
+        response = supabase.table('scraping_progress').update({
+            'updated_at': 'now()'
+        }).eq('id', 1).execute()
+        
+        if response.data:
+            logger.info("Lock timestamp updated successfully.")
+        else:
+            logger.warning("Failed to update lock timestamp.")
+    except Exception as e:
+        logger.error(f"Error updating lock timestamp: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
 
 # Function to fetch properties from Supabase and update cover images with pagination
 def update_property_images(batch_size=1000, max_runtime_hours=5.5):
@@ -212,6 +242,14 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
         batch_size (int): Number of properties to process in each batch
         max_runtime_hours (float): Maximum runtime in hours before stopping (default 5.5 hours to stay within 6-hour limit)
     """
+    # Check if another instance is already running
+    if is_already_running():
+        logger.info("Another instance is already running. Exiting.")
+        return
+    
+    # Update lock timestamp to indicate we're running
+    update_lock_timestamp()
+    
     supabase = create_supabase_client()
     start_time = time.time()
     max_runtime_seconds = max_runtime_hours * 3600  # Convert hours to seconds
@@ -234,6 +272,9 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
                 if last_id_in_batch:
                     update_last_processed_id(last_id_in_batch)
                 break
+            
+            # Update lock timestamp periodically to indicate we're still running
+            update_lock_timestamp()
             
             # Fetch properties that don't have cover_image_url or have null cover_image_url
             # Use pagination and ordering to process in batches
@@ -271,6 +312,9 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
                     if last_id_in_batch:
                         update_last_processed_id(last_id_in_batch)
                     return
+                
+                # Update lock timestamp periodically to indicate we're still running
+                update_lock_timestamp()
                 
                 property_id = property_record['id']
                 last_id_in_batch = property_id
