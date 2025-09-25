@@ -3,28 +3,29 @@ name: Update Property Images
 on:
   workflow_dispatch:
   schedule:
-    # 每6小时运行一次，确保有足够的时间间隔
     - cron: "0 */6 * * *"
 
-# 添加并发控制，确保同一时间只有一个工作流实例在运行
 concurrency:
-  group: update-property-images-${{ github.ref }}
-  cancel-in-progress: true
+  group: update-property-images
+  cancel-in-progress: false
 
 jobs:
   update-images:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: 3.12
 

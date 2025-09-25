@@ -191,24 +191,29 @@ def is_already_running():
     supabase = create_supabase_client()
     try:
         # Get the lock timestamp for image updater (id=1)
-        response = supabase.table('scraping_progress').select('updated_at').eq('id', 1).execute()
+        response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 1).execute()
         if response.data and len(response.data) > 0:
             updated_at_str = response.data[0].get('updated_at')
-            if updated_at_str:
+            status = response.data[0].get('status', 'idle')
+            
+            if updated_at_str and status == 'running':
                 # Parse the timestamp
                 from datetime import datetime, timezone
                 updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
-                # Check if the lock is still valid (less than 6 hours old)
+                # Check if the lock is still valid (less than 30 minutes old for active running status)
                 current_time = datetime.now(timezone.utc)
                 time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 6 * 3600:  # 6 hours in seconds
-                    logger.info("Another instance is already running. Skipping execution.")
+                if time_diff.total_seconds() < 30 * 60:  # 30 minutes in seconds
+                    logger.info("Another instance is actively running. Skipping execution.")
                     return True
+                else:
+                    # Lock is stale, clear it
+                    logger.info("Found stale lock, clearing it.")
+                    clear_lock()
         return False
     except Exception as e:
         logger.error(f"Error checking if already running: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
-        # In case of error, assume not running to avoid blocking legitimate runs
         return False
 
 # Function to update the lock timestamp
@@ -218,17 +223,77 @@ def update_lock_timestamp():
     """
     supabase = create_supabase_client()
     try:
-        # Update the updated_at timestamp for image updater (id=1)
+        # Update the updated_at timestamp and status for image updater (id=1)
         response = supabase.table('scraping_progress').update({
+            'updated_at': 'now()',
+            'status': 'running'
+        }).eq('id', 1).execute()
+        
+        if not response.data:
+            # If no record exists, create one
+            data = {
+                'id': 1,
+                'last_processed_id': None,
+                'batch_size': 1000,
+                'updated_at': 'now()',
+                'status': 'running'
+            }
+            response = supabase.table('scraping_progress').insert(data).execute()
+            
+        logger.info("Lock timestamp updated successfully.")
+    except Exception as e:
+        logger.error(f"Error updating lock timestamp: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
+def clear_lock():
+    """
+    Clear the lock to indicate the process has finished.
+    """
+    supabase = create_supabase_client()
+    try:
+        response = supabase.table('scraping_progress').update({
+            'status': 'idle',
             'updated_at': 'now()'
         }).eq('id', 1).execute()
         
-        if response.data:
-            logger.info("Lock timestamp updated successfully.")
-        else:
-            logger.warning("Failed to update lock timestamp.")
+        logger.info("Lock cleared successfully.")
     except Exception as e:
-        logger.error(f"Error updating lock timestamp: {e}")
+        logger.error(f"Error clearing lock: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
+def trigger_next_workflow():
+    """
+    Trigger the next workflow run using GitHub API.
+    """
+    import os
+    github_token = os.getenv('GITHUB_TOKEN')
+    github_repo = os.getenv('GITHUB_REPOSITORY')
+    
+    if not github_token or not github_repo:
+        logger.warning("GitHub token or repository not available. Cannot trigger next workflow.")
+        return
+    
+    try:
+        import requests
+        
+        url = f"https://api.github.com/repos/{github_repo}/actions/workflows/update_property_image.yml/dispatches"
+        headers = {
+            'Authorization': f'token {github_token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        data = {
+            'ref': 'main'
+        }
+        
+        response = requests.post(url, headers=headers, json=data)
+        
+        if response.status_code == 204:
+            logger.info("Successfully triggered next workflow run.")
+        else:
+            logger.warning(f"Failed to trigger next workflow. Status: {response.status_code}")
+            
+    except Exception as e:
+        logger.error(f"Error triggering next workflow: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
 
 # Function to fetch properties from Supabase and update cover images with pagination
@@ -249,6 +314,8 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
     
     # Update lock timestamp to indicate we're running
     update_lock_timestamp()
+    
+    should_continue = True
     
     supabase = create_supabase_client()
     start_time = time.time()
@@ -277,6 +344,7 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
                 # Save progress before exiting
                 if last_id_in_batch:
                     update_last_processed_id(last_id_in_batch)
+                should_continue = True
                 break
             
             # Update lock timestamp periodically to indicate we're still running
@@ -304,16 +372,8 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
             
             if not response.data or len(response.data) == 0:
                 logger.info("No more properties found without cover images.")
-                # If we have processed data before, we need to continue running for the full time
-                # If we haven't processed any data, we can stop early
-                if has_data_to_process:
-                    # Wait and continue running to utilize the full allocated time
-                    time.sleep(60)  # Wait for 1 minute before checking again
-                    continue
-                else:
-                    # No data to process, we can stop early
-                    logger.info("No data to process. Stopping early.")
-                    break
+                should_continue = False
+                break
                 
             # If we have data, set the flag
             has_data_to_process = True
@@ -328,7 +388,8 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
                     # Save progress before exiting
                     if last_id_in_batch:
                         update_last_processed_id(last_id_in_batch)
-                    return
+                    should_continue = True
+                    break
                 
                 # Update lock timestamp periodically to indicate we're still running
                 update_lock_timestamp()
@@ -398,14 +459,20 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
                 update_last_processed_id(last_id_in_batch)
             
             # If we processed fewer properties than the batch size, we've reached the end
-            # But if we have processed data, we should continue running for the full time
             if len(response.data) < batch_size:
                 logger.info("Processed all available properties in this batch.")
-                if has_data_to_process:
-                    # Wait and continue running to utilize the full allocated time
-                    time.sleep(60)  # Wait for 1 minute before checking again
+                should_continue = False
+                break
                 
         logger.info(f"Finished processing. Total properties processed: {processed_count}")
+        
+        # Clear the lock
+        clear_lock()
+        
+        # If we should continue (due to time limit), trigger the next workflow
+        if should_continue:
+            logger.info("Triggering next workflow run to continue processing...")
+            trigger_next_workflow()
             
     except Exception as e:
         logger.error(f"Error fetching properties from Supabase: {str(e)}")
@@ -413,6 +480,8 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
         # Save progress before exiting
         if last_id_in_batch:
             update_last_processed_id(last_id_in_batch)
+        # Clear the lock on error
+        clear_lock()
         # Re-raise the exception so it's visible in GitHub Actions logs
         raise
 
