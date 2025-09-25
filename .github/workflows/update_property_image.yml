@@ -3,8 +3,8 @@ name: Update Property Images
 on:
   workflow_dispatch:
   schedule:
-    # 每30分钟检查一次，确保任务能快速继续执行
-    - cron: "*/30 * * * *"
+    # 每6小时运行一次，确保有足够的时间间隔
+    - cron: "0 */6 * * *"
 
 # 添加并发控制，确保同一时间只有一个工作流实例在运行
 concurrency:

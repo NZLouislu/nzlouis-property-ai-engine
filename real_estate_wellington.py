@@ -345,6 +345,12 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
     context = None
     page = None
     
+    # Log start of process
+    logger.info(f"Starting Wellington property scraping process. Max runtime: {max_runtime_hours} hours")
+    
+    # Flag to track if we have data to process
+    has_data_to_process = False
+    
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -379,6 +385,8 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                     
                     addresses = fetch_addresses(page, url)
                     if addresses:
+                        # If we have data, set the flag
+                        has_data_to_process = True
                         all_addresses.extend(addresses)
                         print(f"Found {len(addresses)} addresses on page {page_num}")
                         print("Addresses found on this page:")
@@ -416,6 +424,13 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                     update_last_processed_page(page_num)
                     continue
 
+            # If we've processed all pages but still have time, continue running
+            # But only if we have processed data
+            while has_data_to_process and (time.time() - start_time) < max_runtime_seconds:
+                logger.info("Processed all available pages. Waiting before next cycle.")
+                time.sleep(60)  # Wait for 1 minute before checking again
+                update_lock_timestamp()  # Update lock timestamp to indicate we're still running
+
     except Exception as e:
         logger.error(f"Error in scraping process: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
@@ -423,6 +438,9 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
         if 'page_num' in locals():
             update_last_processed_page(page_num)
     finally:
+        # If we haven't processed any data, we can exit early
+        if not has_data_to_process:
+            logger.info("No data to process. Stopping early.")
         # Ensure browser is closed properly
         try:
             if browser:

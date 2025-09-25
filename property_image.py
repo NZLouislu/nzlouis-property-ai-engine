@@ -263,6 +263,12 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
         # Counter for processed properties
         processed_count = 0
         
+        # Log start of process
+        logger.info(f"Starting property image update process. Max runtime: {max_runtime_hours} hours")
+        
+        # Flag to track if we have data to process
+        has_data_to_process = False
+        
         while True:
             # Check if we've exceeded the maximum runtime
             elapsed_time = time.time() - start_time
@@ -298,8 +304,19 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
             
             if not response.data or len(response.data) == 0:
                 logger.info("No more properties found without cover images.")
-                break
+                # If we have processed data before, we need to continue running for the full time
+                # If we haven't processed any data, we can stop early
+                if has_data_to_process:
+                    # Wait and continue running to utilize the full allocated time
+                    time.sleep(60)  # Wait for 1 minute before checking again
+                    continue
+                else:
+                    # No data to process, we can stop early
+                    logger.info("No data to process. Stopping early.")
+                    break
                 
+            # If we have data, set the flag
+            has_data_to_process = True
             logger.info(f"Found {len(response.data)} properties without cover images in this batch.")
             
             last_id_in_batch = None
@@ -381,9 +398,12 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
                 update_last_processed_id(last_id_in_batch)
             
             # If we processed fewer properties than the batch size, we've reached the end
+            # But if we have processed data, we should continue running for the full time
             if len(response.data) < batch_size:
-                logger.info("Processed all available properties.")
-                break
+                logger.info("Processed all available properties in this batch.")
+                if has_data_to_process:
+                    # Wait and continue running to utilize the full allocated time
+                    time.sleep(60)  # Wait for 1 minute before checking again
                 
         logger.info(f"Finished processing. Total properties processed: {processed_count}")
             
