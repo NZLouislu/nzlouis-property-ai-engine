@@ -5,7 +5,6 @@
 /.idx/
 .env
 shell.nix
-/config/
 /property_forecast_env/
 .qoder/
 /tasks/
