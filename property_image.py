@@ -177,7 +177,7 @@ def update_last_processed_id(last_id):
             if response.data:
                 logger.info(f"Inserted new record with last processed ID: {last_id}")
             else:
-                logger.error(f"Failed to insert/update last processed ID: {last_id}")
+                logger.error(f"❌ Failed to insert/update last processed ID: {last_id}")
     except Exception as e:
         logger.error(f"Error updating last processed ID: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
@@ -240,7 +240,7 @@ def update_lock_timestamp():
             }
             response = supabase.table('scraping_progress').insert(data).execute()
             
-        logger.info("Lock timestamp updated successfully.")
+        logger.info("✅ Lock timestamp updated successfully.")
     except Exception as e:
         logger.error(f"Error updating lock timestamp: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
@@ -256,7 +256,7 @@ def clear_lock():
             'updated_at': 'now()'
         }).eq('id', 1).execute()
         
-        logger.info("Lock cleared successfully.")
+        logger.info("✅ Lock cleared successfully.")
     except Exception as e:
         logger.error(f"Error clearing lock: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
@@ -288,9 +288,9 @@ def trigger_next_workflow():
         response = requests.post(url, headers=headers, json=data)
         
         if response.status_code == 204:
-            logger.info("Successfully triggered next workflow run.")
+            logger.info("✅ Successfully triggered next workflow run.")
         else:
-            logger.warning(f"Failed to trigger next workflow. Status: {response.status_code}")
+            logger.warning(f"❌ Failed to trigger next workflow. Status: {response.status_code}")
             
     except Exception as e:
         logger.error(f"Error triggering next workflow: {e}")

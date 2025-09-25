@@ -97,7 +97,7 @@ def update_last_processed_region(region_id):
             if response.data:
                 logger.info(f"Inserted new record with last processed region ID: {region_id}")
             else:
-                logger.error(f"Failed to insert/update last processed region ID: {region_id}")
+                logger.error(f"❌ Failed to insert/update last processed region ID: {region_id}")
     except Exception as e:
         logger.error(f"Error updating last processed region ID: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
@@ -155,9 +155,9 @@ def update_property_cover_image(property_id, image_url):
         supabase = create_supabase_client()
         response = supabase.table('properties').update({'cover_image_url': image_url}).eq('id', property_id).execute()
         if response.data:
-            logger.info(f"Successfully updated cover image for property ID {property_id}")
+            logger.info(f"✅ Successfully updated cover image for property ID {property_id}")
         else:
-            logger.error(f"Failed to update cover image for property ID {property_id}")
+            logger.error(f"❌ Failed to update cover image for property ID {property_id}")
     except Exception as e:
         logger.error(f"Error updating cover image for property ID {property_id}: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
@@ -245,7 +245,7 @@ def scrape_properties(suburb_url, city, suburb_name):
         # Get the first page to determine the number of pages
         response = requests.get(suburb_url, headers=headers, timeout=30)
         if response.status_code != 200:
-            logger.error(f"Failed to fetch suburb page: {suburb_url}")
+            logger.error(f"❌ Failed to fetch suburb page: {suburb_url}")
             return
             
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -341,7 +341,7 @@ def main():
             # Add a delay between regions
             time.sleep(3)
             
-        logger.info("Scraping process completed successfully")
+        logger.info("✅ Scraping process completed successfully")
         
     except Exception as e:
         logger.error(f"Error in main function: {e}")

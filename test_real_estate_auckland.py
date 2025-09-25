@@ -28,22 +28,22 @@ def test_imports():
     for name, import_func in imports:
         try:
             import_func()
-            print(f"    ✅ {name}")
+            print(f"✅ {name}")
         except Exception as e:
-            print(f"    ❌ {name}: {e}")
+            print(f" ❌ {name}: {e}")
             failed_imports.append((name, str(e)))
     
     # Test specific imports from config.supabase_config
     try:
         from config.supabase_config import insert_real_estate, create_supabase_client
-        print(f"    ✅ config.supabase_config.insert_real_estate")
-        print(f"    ✅ config.supabase_config.create_supabase_client")
+        print(f" ✅ config.supabase_config.insert_real_estate")
+        print(f"✅ config.supabase_config.create_supabase_client")
     except Exception as e:
-        print(f"    ❌ config.supabase_config functions: {e}")
+        print(f" ❌ config.supabase_config functions: {e}")
         failed_imports.append(("config.supabase_config functions", str(e)))
     
     if failed_imports:
-        print(f"  ❌ Failed imports: {failed_imports}")
+        print(f" ❌ Failed imports: {failed_imports}")
         return False
     else:
         print("  ✅ All imports successful")

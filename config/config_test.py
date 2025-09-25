@@ -20,27 +20,27 @@ def test_redis_connection():
         if value:
             print("Redis connection successful, test key inserted.")
         else:
-            print("Redis connection failed.")
+            print("❌ Redis connection failed.")
         return True
     except Exception as e:
         print(f"Error connecting to Redis: {e}")
-        print("Redis test failed.")
+        print("❌ Redis test failed.")
         return False
 
 def test_supabase_connection():
     try:
         # Create a Supabase client
         supabase_client = create_supabase_client()
-        print("Successfully connected to Supabase.")
+        print("✅ Successfully connected to Supabase.")
         
         # Test querying the 'properties' table
         response = supabase_client.from_('properties').select('*').limit(1).execute()
 
         # Check if there is an error or data is None
         if not response.data:
-            print("Failed to fetch data from 'properties' table or table is empty.")
+            print("❌ Failed to fetch data from 'properties' table or table is empty.")
         else:
-            print("Successfully fetched data from 'properties' table:", response.data)
+            print("✅ Successfully fetched data from 'properties' table:", response.data)
         return True
     except Exception as e:
         print(f"Error connecting to Supabase: {e}")
@@ -62,10 +62,10 @@ def insert_property(supabase_client, property_data):
 
         # Check for errors in the response
         if hasattr(response, 'error') and response.error:
-            print(f"Failed to insert property: {response.error}")
+            print(f"❌ Failed to insert property: {response.error}")
             return None
         elif not response.data:
-            print("Failed to insert property: No data returned")
+            print("❌ Failed to insert property: No data returned")
             return None
         else:
             print(f"Property inserted: {property_data['address']}")

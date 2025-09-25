@@ -3,10 +3,8 @@ name: Scrape Wellington Properties
 on:
   workflow_dispatch:
   schedule:
-    # 每30分钟运行一次
     - cron: "*/30 * * * *"
 
-# 添加并发控制，确保同一时间只有一个工作流实例在运行
 concurrency:
   group: scrape-property-wellington
   cancel-in-progress: false
@@ -14,6 +12,7 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
 
     env:
       UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
@@ -21,13 +20,15 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       PROPERTY_VALUE_BASE_URL: ${{ secrets.PROPERTY_VALUE_BASE_URL }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: 3.12
 

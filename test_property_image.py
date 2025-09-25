@@ -48,14 +48,14 @@ def test_supabase_connection():
     try:
         from config.supabase_config import create_supabase_client
         supabase = create_supabase_client()
-        print("  ✅ Supabase client created successfully")
+        print("✅ Supabase client created successfully")
         
         # Test a simple query
         response = supabase.table('scraping_progress').select('*').limit(1).execute()
-        print("  ✅ Supabase connection test successful")
+        print("✅ Supabase connection test successful")
         return True
     except Exception as e:
-        print(f"  ❌ Supabase connection test failed: {e}")
+        print(f"❌ Supabase connection test failed: {e}")
         return False
 
 def test_environment_variables():
@@ -68,10 +68,10 @@ def test_environment_variables():
             missing_vars.append(var)
     
     if missing_vars:
-        print(f"  ❌ Missing environment variables: {missing_vars}")
+        print(f"❌ Missing environment variables: {missing_vars}")
         return False
     else:
-        print("  ✅ All required environment variables are set")
+        print("✅ All required environment variables are set")
         return True
 
 def main():
@@ -90,7 +90,7 @@ def main():
             result = test_func()
             results.append(result)
         except Exception as e:
-            print(f"  ❌ {test_name} failed with exception: {e}")
+            print(f"❌ {test_name} failed with exception: {e}")
             results.append(False)
         print()
     
