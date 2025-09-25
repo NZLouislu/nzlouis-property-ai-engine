@@ -349,6 +349,12 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
     # Get the last processed page to resume from where we left off
     start_page = get_last_processed_page()
     
+    # If we've reached the end, reset to start from beginning
+    if start_page >= max_pages:
+        logger.info(f"Reached end of pages ({start_page}), resetting to start from beginning")
+        start_page = 0
+        update_last_processed_page(0)
+    
     # Calculate maximum runtime
     start_time = time.time()
     max_runtime_seconds = max_runtime_hours * 3600  # Convert hours to seconds
