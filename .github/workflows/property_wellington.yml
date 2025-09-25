@@ -2,8 +2,8 @@ name: Scrape Wellington Properties
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/30 * * * *"
+  # schedule:
+  #   - cron: "*/30 * * * *" # Disabled by user request
 
 concurrency:
   group: scrape-property-wellington-${{ github.run_id }}
