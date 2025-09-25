@@ -18,6 +18,7 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      REALESTATE_URL: https://www.realestate.co.nz/residential/sale
       REALESTATE_RENT_URL: https://www.realestate.co.nz/residential/rental
 
     steps:
