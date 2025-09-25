@@ -3,8 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 from fetch_property_links import fetch_property_links
 from properties import fetch_property_details
-# from config.redis_config import create_redis_client, check_property_in_redis, add_property_to_redis
-from config.supabase_config import create_supabase_client
+from config.supabase_config import create_supabase_client, insert_property_and_history
 import traceback
 import sys
 import logging
@@ -74,8 +73,6 @@ def fetch_suburbs(url, city):
                     scrape_properties(suburb_link, max_page, city, suburb_name)
 
 def scrape_properties(main_url, max_pages, city, suburb):
-    # redis_client = create_redis_client()  # Instantiate the Redis client
-
     for page in range(1, max_pages + 1):
         # Fetch property links and titles for the current page
         property_links, titles = fetch_property_links(main_url, page)
@@ -84,19 +81,11 @@ def scrape_properties(main_url, max_pages, city, suburb):
         for property_url, title in zip(property_links, titles):
             print(f"Fetching details for: {title}")
             
-            # Check if the property address already exists in Redis
-            # if check_property_in_redis(redis_client, title):
-            #     print(f"Property {title} already exists in Redis. Skipping...")
-            #     continue
-
             # Fetch property details and history
             property_data, history_data = fetch_property_details(property_url, title, city, suburb)
             
             # Insert into Supabase
             insert_property_and_history(property_data, history_data)
-
-            # Add the property to Redis to avoid duplicates
-            # add_property_to_redis(redis_client, title)
             
             # time.sleep(0.5)  # Adding a delay to avoid overloading the server
 
