@@ -164,43 +164,63 @@ def update_property_cover_image(property_id, image_url):
 
 def fetch_regions(base_url):
     """
-    Fetch all regions from the main Wellington page.
+    Fetch all regions from the main Wellington page with retry mechanism.
     """
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(base_url, headers=headers, timeout=30)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            # Find the region links container
-            region_links_container = soup.find('div', {'testid': 'taLinksContainer'})
-            if region_links_container:
-                regions = []
-                region_links = region_links_container.find_all('a')
-                for link in region_links:
-                    region_name = link.get_text(strip=True)
-                    region_href = link.get('href')
-                    if region_href:
-                        region_url = base_url.rstrip('/') + region_href
-                        region_id = link.get('testid', '').replace('ta-link-', '')
-                        regions.append({
-                            'id': region_id,
-                            'name': region_name,
-                            'url': region_url
-                        })
-                return regions
-        return []
-    except Exception as e:
-        logger.error(f"Error fetching regions: {e}")
-        logger.error(f"Error details: {traceback.format_exc()}")
-        return []
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            timeout = 60 + (attempt * 30)
+            logger.info(f"Fetching regions (attempt {attempt + 1}/{max_retries}) with {timeout}s timeout")
+            
+            response = requests.get(base_url, headers=headers, timeout=timeout)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'html.parser')
+                # Find the region links container
+                region_links_container = soup.find('div', {'testid': 'taLinksContainer'})
+                if region_links_container:
+                    regions = []
+                    region_links = region_links_container.find_all('a')
+                    for link in region_links:
+                        region_name = link.get_text(strip=True)
+                        region_href = link.get('href')
+                        if region_href:
+                            region_url = base_url.rstrip('/') + region_href
+                            region_id = link.get('testid', '').replace('ta-link-', '')
+                            regions.append({
+                                'id': region_id,
+                                'name': region_name,
+                                'url': region_url
+                            })
+                    return regions
+            return []
+            
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            logger.warning(f"Network error fetching regions on attempt {attempt + 1}/{max_retries}: {e}")
+            if attempt < max_retries - 1:
+                wait_time = 10 * (attempt + 1)
+                logger.info(f"Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+                continue
+            else:
+                logger.error(f"Failed to fetch regions after {max_retries} attempts: {e}")
+                return []
+        except Exception as e:
+            logger.error(f"Error fetching regions: {e}")
+            logger.error(f"Error details: {traceback.format_exc()}")
+            return []
+    
+    return []
 
 def fetch_suburbs(region_url):
     """
-    Fetch all suburbs from a region page with retry mechanism.
+    Fetch all suburbs from a region page with enhanced retry mechanism.
     """
-    max_retries = 3
+    max_retries = 5
+    base_timeout = 60
+    
     for attempt in range(max_retries):
         try:
             headers = {
@@ -215,7 +235,10 @@ def fetch_suburbs(region_url):
             session = requests.Session()
             session.headers.update(headers)
             
-            response = session.get(region_url, timeout=30, stream=False)
+            timeout = base_timeout + (attempt * 30)
+            logger.info(f"Attempting to fetch suburbs (attempt {attempt + 1}/{max_retries}) with {timeout}s timeout")
+            
+            response = session.get(region_url, timeout=timeout, stream=False)
             response.raise_for_status()
             
             if response.status_code == 200:
@@ -242,13 +265,16 @@ def fetch_suburbs(region_url):
                     return suburbs
             return []
             
-        except (requests.exceptions.ChunkedEncodingError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        except (requests.exceptions.ChunkedEncodingError, requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ReadTimeout) as e:
+            wait_time = 10 * (attempt + 1)
             logger.warning(f"Network error on attempt {attempt + 1}/{max_retries} for {region_url}: {e}")
             if attempt < max_retries - 1:
-                time.sleep(5 * (attempt + 1))
+                logger.info(f"Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
                 continue
             else:
                 logger.error(f"Failed to fetch suburbs after {max_retries} attempts from {region_url}: {e}")
+                logger.info("This may be due to external website connectivity issues. The script will continue with other regions.")
                 return []
         except Exception as e:
             logger.error(f"Error fetching suburbs from {region_url}: {e}")
@@ -259,18 +285,47 @@ def fetch_suburbs(region_url):
 
 def scrape_properties(suburb_url, city, suburb_name):
     """
-    Scrape properties from a suburb page with pagination.
+    Scrape properties from a suburb page with pagination and retry mechanism.
     """
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        
-        # Get the first page to determine the number of pages
-        response = requests.get(suburb_url, headers=headers, timeout=30)
-        if response.status_code != 200:
-            logger.error(f"Failed to fetch suburb page: {suburb_url}")
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            timeout = 60 + (attempt * 30)
+            logger.info(f"Fetching suburb page (attempt {attempt + 1}/{max_retries}) with {timeout}s timeout: {suburb_name}")
+            
+            # Get the first page to determine the number of pages
+            response = requests.get(suburb_url, headers=headers, timeout=timeout)
+            if response.status_code != 200:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Failed to fetch suburb page (attempt {attempt + 1}): {suburb_url}")
+                    time.sleep(10 * (attempt + 1))
+                    continue
+                else:
+                    logger.error(f"Failed to fetch suburb page after {max_retries} attempts: {suburb_url}")
+                    return
+            
+            break
+            
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            logger.warning(f"Network error fetching suburb page on attempt {attempt + 1}/{max_retries}: {e}")
+            if attempt < max_retries - 1:
+                wait_time = 10 * (attempt + 1)
+                logger.info(f"Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+                continue
+            else:
+                logger.error(f"Failed to fetch suburb page after {max_retries} attempts: {e}")
+                return
+        except Exception as e:
+            logger.error(f"Error scraping properties for suburb {suburb_name}: {e}")
+            logger.error(f"Error details: {traceback.format_exc()}")
             return
+    
+    try:
             
         soup = BeautifulSoup(response.content, 'html.parser')
         max_pages = get_max_pages(soup)
