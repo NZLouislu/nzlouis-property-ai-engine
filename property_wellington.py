@@ -97,7 +97,7 @@ def update_last_processed_region(region_id):
             if response.data:
                 logger.info(f"Inserted new record with last processed region ID: {region_id}")
             else:
-                logger.error(f"❌ Failed to insert/update last processed region ID: {region_id}")
+                logger.error(f"Failed to insert/update last processed region ID: {region_id}")
     except Exception as e:
         logger.error(f"Error updating last processed region ID: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
@@ -155,9 +155,9 @@ def update_property_cover_image(property_id, image_url):
         supabase = create_supabase_client()
         response = supabase.table('properties').update({'cover_image_url': image_url}).eq('id', property_id).execute()
         if response.data:
-            logger.info(f"✅ Successfully updated cover image for property ID {property_id}")
+            logger.info(f"Successfully updated cover image for property ID {property_id}")
         else:
-            logger.error(f"❌ Failed to update cover image for property ID {property_id}")
+            logger.error(f"Failed to update cover image for property ID {property_id}")
     except Exception as e:
         logger.error(f"Error updating cover image for property ID {property_id}: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
@@ -198,40 +198,64 @@ def fetch_regions(base_url):
 
 def fetch_suburbs(region_url):
     """
-    Fetch all suburbs from a region page.
+    Fetch all suburbs from a region page with retry mechanism.
     """
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(region_url, headers=headers, timeout=60)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            # Find the suburb links container
-            suburb_links_container = soup.find('div', {'testid': 'suburbLinksContainer'})
-            if suburb_links_container:
-                suburbs = []
-                suburb_links = suburb_links_container.find_all('a')
-                for link in suburb_links:
-                    suburb_name = link.get_text(strip=True)
-                    suburb_href = link.get('href')
-                    if suburb_href:
-                        base_url = os.getenv("PROPERTY_VALUE_BASE_URL")
-                        if not base_url:
-                            raise ValueError("PROPERTY_VALUE_BASE_URL environment variable is not set")
-                        suburb_url = base_url.rstrip('/') + suburb_href
-                        suburb_id = link.get('testid', '').replace('suburb-link-', '')
-                        suburbs.append({
-                            'id': suburb_id,
-                            'name': suburb_name,
-                            'url': suburb_url
-                        })
-                return suburbs
-        return []
-    except Exception as e:
-        logger.error(f"Error fetching suburbs from {region_url}: {e}")
-        logger.error(f"Error details: {traceback.format_exc()}")
-        return []
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            }
+            
+            session = requests.Session()
+            session.headers.update(headers)
+            
+            response = session.get(region_url, timeout=30, stream=False)
+            response.raise_for_status()
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'html.parser')
+                # Find the suburb links container
+                suburb_links_container = soup.find('div', {'testid': 'suburbLinksContainer'})
+                if suburb_links_container:
+                    suburbs = []
+                    suburb_links = suburb_links_container.find_all('a')
+                    for link in suburb_links:
+                        suburb_name = link.get_text(strip=True)
+                        suburb_href = link.get('href')
+                        if suburb_href:
+                            base_url = os.getenv("PROPERTY_VALUE_BASE_URL")
+                            if not base_url:
+                                raise ValueError("PROPERTY_VALUE_BASE_URL environment variable is not set")
+                            suburb_url = base_url.rstrip('/') + suburb_href
+                            suburb_id = link.get('testid', '').replace('suburb-link-', '')
+                            suburbs.append({
+                                'id': suburb_id,
+                                'name': suburb_name,
+                                'url': suburb_url
+                            })
+                    return suburbs
+            return []
+            
+        except (requests.exceptions.ChunkedEncodingError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            logger.warning(f"Network error on attempt {attempt + 1}/{max_retries} for {region_url}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(5 * (attempt + 1))
+                continue
+            else:
+                logger.error(f"Failed to fetch suburbs after {max_retries} attempts from {region_url}: {e}")
+                return []
+        except Exception as e:
+            logger.error(f"Error fetching suburbs from {region_url}: {e}")
+            logger.error(f"Error details: {traceback.format_exc()}")
+            return []
+    
+    return []
 
 def scrape_properties(suburb_url, city, suburb_name):
     """
@@ -245,7 +269,7 @@ def scrape_properties(suburb_url, city, suburb_name):
         # Get the first page to determine the number of pages
         response = requests.get(suburb_url, headers=headers, timeout=30)
         if response.status_code != 200:
-            logger.error(f"❌ Failed to fetch suburb page: {suburb_url}")
+            logger.error(f"Failed to fetch suburb page: {suburb_url}")
             return
             
         soup = BeautifulSoup(response.content, 'html.parser')

@@ -71,11 +71,11 @@ def insert_property_and_history(property_data: dict, history_data: list) -> bool
         property_response = supabase.table('properties').insert(cleaned_property_data).execute()
         
         if not property_response.data:
-            logger.warning("❌ Failed to insert property")
+            logger.warning("Failed to insert property")
             return False
             
         property_id = property_response.data[0]['id']
-        logger.info(f"✅ Successfully inserted property with ID: {property_id}")
+        logger.info(f"Successfully inserted property with ID: {property_id}")
         
         # Insert history data if provided
         if history_data and isinstance(history_data, list):
@@ -92,7 +92,7 @@ def insert_property_and_history(property_data: dict, history_data: list) -> bool
                     try:
                         history_response = supabase.table('property_history').insert(history_entry).execute()
                         if not history_response.data:
-                            logger.warning(f"❌ Failed to insert history: {event}")
+                            logger.warning(f"Failed to insert history: {event}")
                     except Exception as e:
                         logger.error(f"Error inserting history: {str(e)}")
                         logger.warning(f"Skipped history entry: {event}")
@@ -147,10 +147,10 @@ def insert_real_estate(address: str, status: str) -> bool:
         }).execute()
         
         if response.data:
-            logger.info(f"✅ Successfully inserted property: {address}")
+            logger.info(f"Successfully inserted property: {address}")
             return True
         else:
-            logger.warning(f"❌ Failed to insert property: {address}")
+            logger.warning(f"Failed to insert property: {address}")
             return False
             
     except Exception as e:
@@ -178,10 +178,10 @@ def insert_real_estate_rent(address: str, status: str) -> bool:
         }).execute()
         
         if response.data:
-            logger.info(f"✅ Successfully inserted rental property: {address}")
+            logger.info(f"Successfully inserted rental property: {address}")
             return True
         else:
-            logger.warning(f"❌ Failed to insert rental property: {address}")
+            logger.warning(f"Failed to insert rental property: {address}")
             return False
             
     except Exception as e:

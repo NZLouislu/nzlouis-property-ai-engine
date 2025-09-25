@@ -177,7 +177,7 @@ def update_last_processed_id(last_id):
             if response.data:
                 logger.info(f"Inserted new record with last processed ID: {last_id}")
             else:
-                logger.error(f"❌ Failed to insert/update last processed ID: {last_id}")
+                logger.error(f"Failed to insert/update last processed ID: {last_id}")
     except Exception as e:
         logger.error(f"Error updating last processed ID: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
@@ -240,7 +240,7 @@ def update_lock_timestamp():
             }
             response = supabase.table('scraping_progress').insert(data).execute()
             
-        logger.info("✅ Lock timestamp updated successfully.")
+        logger.info("Lock timestamp updated successfully.")
     except Exception as e:
         logger.error(f"Error updating lock timestamp: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
@@ -256,7 +256,7 @@ def clear_lock():
             'updated_at': 'now()'
         }).eq('id', 1).execute()
         
-        logger.info("✅ Lock cleared successfully.")
+        logger.info("Lock cleared successfully.")
     except Exception as e:
         logger.error(f"Error clearing lock: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
@@ -288,9 +288,9 @@ def trigger_next_workflow():
         response = requests.post(url, headers=headers, json=data)
         
         if response.status_code == 204:
-            logger.info("✅ Successfully triggered next workflow run.")
+            logger.info("Successfully triggered next workflow run.")
         else:
-            logger.warning(f"❌ Failed to trigger next workflow. Status: {response.status_code}")
+            logger.warning(f"Failed to trigger next workflow. Status: {response.status_code}")
             
     except Exception as e:
         logger.error(f"Error triggering next workflow: {e}")
@@ -432,12 +432,12 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
                             update_response = supabase.table('properties').update({'cover_image_url': image_url}).eq('id', property_id).execute()
                             
                             if update_response.data:
-                                logger.info(f"✅ Successfully updated cover image for property ID {property_id}")
+                                logger.info(f"Successfully updated cover image for property ID {property_id}")
                             else:
-                                logger.error(f"❌ Failed to update cover image for property ID {property_id}")
+                                logger.error(f"Failed to update cover image for property ID {property_id}")
                                 logger.debug(f"Update response: {update_response}")
                         except Exception as update_e:
-                            logger.error(f"❌ Error updating cover image for property ID {property_id}: {str(update_e)}")
+                            logger.error(f"Error updating cover image for property ID {property_id}: {str(update_e)}")
                             logger.error(f"Update error details: {traceback.format_exc()}")
                     else:
                         logger.warning(f"⚠️ No image found for property ID {property_id}")

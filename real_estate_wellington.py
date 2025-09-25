@@ -101,7 +101,7 @@ def update_last_processed_page(last_page):
             if response.data:
                 logger.info(f"Inserted new record with last processed page: {last_page}")
             else:
-                logger.error(f"❌ Failed to insert/update last processed page: {last_page}")
+                logger.error(f"Failed to insert/update last processed page: {last_page}")
     except Exception as e:
         logger.error(f"Error updating last processed page: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
@@ -160,7 +160,7 @@ def update_lock_timestamp():
         if response.data:
             logger.info("Wellington scraper lock timestamp updated successfully.")
         else:
-            logger.warning("❌ Failed to update Wellington scraper lock timestamp.")
+            logger.warning("Failed to update Wellington scraper lock timestamp.")
     except Exception as e:
         logger.error(f"Error updating Wellington scraper lock timestamp: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
