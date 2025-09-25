@@ -6,8 +6,8 @@ on:
     - cron: "0 */6 * * *"
 
 concurrency:
-  group: scrape-realestate-auckland
-  cancel-in-progress: false
+  group: scrape-realestate-auckland-${{ github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   scrape:

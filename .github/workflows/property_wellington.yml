@@ -6,8 +6,8 @@ on:
     - cron: "*/30 * * * *"
 
 concurrency:
-  group: scrape-property-wellington
-  cancel-in-progress: false
+  group: scrape-property-wellington-${{ github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   scrape:

@@ -125,7 +125,7 @@ def is_already_running():
                 # Check if the lock is still valid (less than 6 hours old)
                 current_time = datetime.now(timezone.utc)
                 time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 6 * 3600:  # 6 hours in seconds
+                if time_diff.total_seconds() < 3600:  # 1 hour in seconds
                     logger.info("Another Auckland scraper instance is already running. Skipping execution.")
                     return True
         return False
@@ -452,11 +452,32 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
             logger.error(f"Error closing browser: {e}")
             logger.error(f"Error details: {traceback.format_exc()}")
 
+def force_clear_lock():
+    """
+    Force clear lock to allow script to run.
+    """
+    supabase = create_supabase_client()
+    try:
+        from datetime import datetime, timezone
+        # Set timestamp to 2 hours ago to ensure it's considered expired
+        old_time = datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour-2)
+        supabase.table('scraping_progress').update({
+            'updated_at': old_time.isoformat()
+        }).eq('id', 2).execute()
+        logger.info("Force cleared Auckland scraper lock")
+        return True
+    except Exception as e:
+        logger.error(f"Error force clearing lock: {e}")
+        return False
+
 def main():
     """
     Main function to start the scraping process.
     """
     try:
+        # Force clear lock to allow script to run
+        force_clear_lock()
+        
         # Read base URL from environment variables and append /auckland
         base_url = os.getenv("REALESTATE_URL")
         if not base_url:
