@@ -319,7 +319,7 @@ def main():
             elif skip_regions and region['id'] == last_processed_region:
                 # We've reached the last processed region, stop skipping
                 skip_regions = False
-                continue  # Skip the last processed region as it was already processed
+                # Don't skip this region, process it again to ensure completion
             
             logger.info(f"Processing region: {region['name']}")
             

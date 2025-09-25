@@ -121,7 +121,17 @@ def is_already_running():
             if updated_at_str:
                 # Parse the timestamp
                 from datetime import datetime, timezone
-                updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
+                # Handle different timestamp formats
+                timestamp_str = updated_at_str.replace('Z', '+00:00')
+                # Remove microseconds if they have more than 6 digits
+                if '.' in timestamp_str and '+' in timestamp_str:
+                    date_part, tz_part = timestamp_str.split('+')
+                    if '.' in date_part:
+                        main_part, micro_part = date_part.split('.')
+                        # Truncate microseconds to 6 digits
+                        micro_part = micro_part[:6]
+                        timestamp_str = f"{main_part}.{micro_part}+{tz_part}"
+                updated_at = datetime.fromisoformat(timestamp_str)
                 # Check if the lock is still valid (less than 6 hours old)
                 current_time = datetime.now(timezone.utc)
                 time_diff = current_time - updated_at
@@ -443,14 +453,8 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
         # If we haven't processed any data, we can exit early
         if not has_data_to_process:
             logger.info("No data to process. Stopping early.")
-        # Ensure browser is closed properly
-        try:
-            if browser:
-                browser.close()
-                logger.info("Browser closed successfully")
-        except Exception as e:
-            logger.error(f"Error closing browser: {e}")
-            logger.error(f"Error details: {traceback.format_exc()}")
+        # Browser will be automatically closed by the context manager
+        logger.info("Browser context closed automatically")
 
 def force_clear_lock():
     """
