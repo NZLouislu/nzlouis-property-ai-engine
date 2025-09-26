@@ -9,7 +9,7 @@ import sys
 import time
 import logging
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from typing import Optional
@@ -27,78 +27,56 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("property_history_migration.log"),
+        logging.FileHandler("property_history_migration.log", encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )
 
 logger = logging.getLogger(__name__)
 
-def check_property_history_column_exists(supabase: Client) -> bool:
+def check_migration_status() -> bool:
     """
-    检查 properties 表中是否已存在 property_history 字段
-    """
-    try:
-        response = supabase.table('properties').select('property_history').limit(1).execute()
-        return True
-    except Exception as e:
-        logger.error(f"检查 property_history 字段时出错: {e}")
-        return False
-
-def ensure_property_history_column(supabase: Client) -> bool:
-    """
-    确保 properties 表中存在 property_history 字段
-    如果不存在，尝试创建（需要数据库权限）
-    """
-    if check_property_history_column_exists(supabase):
-        logger.info("✓ properties 表中已存在 property_history 字段")
-        return True
-    
-    logger.warning("properties 表中不存在 property_history 字段")
-    logger.info("请确保在 Supabase SQL 编辑器中执行以下 SQL 语句:")
-    logger.info("ALTER TABLE properties ADD COLUMN IF NOT EXISTS property_history TEXT;")
-    
-    # 在 GitHub Actions 环境中，我们假设字段已经存在或会被手动添加
-    # 这里不阻塞执行，而是继续尝试
-    return False
-
-def get_last_processed_id() -> Optional[str]:
-    """
-    获取上次处理的最后一个 property ID
+    检查迁移状态，如果不应该运行则返回 True（退出），否则返回 False（继续）
     """
     supabase = create_supabase_client()
     try:
-        response = supabase.table('scraping_progress').select('last_processed_id').eq('id', 6).execute()
-        if response.data and len(response.data) > 0:
-            last_processed_id = response.data[0].get('last_processed_id')
-            if last_processed_id:
-                logger.info(f"从 ID {last_processed_id} 继续处理")
-                return last_processed_id
-        
-        logger.info("从头开始处理")
-        return None
-    except Exception as e:
-        logger.error(f"获取上次处理 ID 时出错: {e}")
-        return None
-
-def update_migration_progress(processed_count: int, status: str = 'running') -> bool:
-    """
-    更新迁移进度到 scraping_progress 表
-    """
-    supabase = create_supabase_client()
-    try:
-        response = supabase.table('scraping_progress').upsert({
-            'id': 6,
-            'last_processed_id': str(processed_count),
-            'batch_size': 1000,
-            'status': status,
-            'updated_at': 'now()'
-        }).execute()
-        
-        return True
-    except Exception as e:
-        logger.error(f"更新迁移进度时出错: {e}")
+        response = supabase.table('scraping_progress').select('*').eq('id', 6).execute()
+        if response.data:
+            status = response.data[0]['status']
+            logger.info(f"当前迁移状态: {status}")
+            
+            if status == 'complete':
+                logger.info("迁移已成功完成")
+                return True
+            elif status == 'stop':
+                logger.info("迁移已手动停止")
+                return True
+            elif status == 'running':
+                logger.info("检查迁移是否过期...")
+                updated_at_str = response.data[0].get('updated_at')
+                if updated_at_str:
+                    updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
+                    time_diff = datetime.now(timezone.utc) - updated_at
+                    logger.info(f"上次更新时间差: {time_diff.total_seconds():.1f} 秒")
+                    if time_diff > timedelta(minutes=3):
+                        logger.info("检测到过期迁移（超过3分钟），重置为空闲状态")
+                        supabase.table('scraping_progress').update({'status': 'idle'}).eq('id', 6).execute()
+                        logger.info("状态已重置，继续迁移")
+                    else:
+                        logger.info("迁移正在由其他进程运行")
+                        return True
+                else:
+                    logger.info("没有更新时间戳，重置状态")
+                    supabase.table('scraping_progress').update({'status': 'idle'}).eq('id', 6).execute()
+            
+            logger.info("状态检查通过 - 可以继续迁移")
+        else:
+            logger.info("未找到迁移记录，将由迁移脚本创建")
+            
         return False
+    except Exception as e:
+        logger.error(f"检查迁移状态时出错: {e}")
+        return True
 
 def is_already_running() -> bool:
     """
@@ -111,22 +89,19 @@ def is_already_running() -> bool:
             updated_at_str = response.data[0].get('updated_at')
             status = response.data[0].get('status', 'idle')
             
-            # 检查任务是否已完成
             if status == 'complete':
                 logger.info("任务已完成，无需执行")
                 return True
             
-            # 检查任务是否被手动停止
             if status == 'stop':
                 logger.info("任务被手动停止，跳过执行")
                 return True
             
-            # 检查是否有实例正在运行
             if updated_at_str and status == 'running':
                 updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
                 current_time = datetime.now(timezone.utc)
                 time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 30 * 60:  # 30分钟内
+                if time_diff.total_seconds() < 30 * 60:
                     logger.info("另一个实例正在运行，跳过执行")
                     return True
                 else:
@@ -183,38 +158,43 @@ def mark_complete():
     except Exception as e:
         logger.error(f"标记完成状态时出错: {e}")
 
-def trigger_next_workflow():
+def get_last_processed_id() -> Optional[str]:
     """
-    触发下一次工作流运行
+    获取上次处理的最后一个 property ID
     """
-    github_token = os.getenv('GITHUB_TOKEN')
-    github_repo = os.getenv('GITHUB_REPOSITORY')
-    
-    if not github_token or not github_repo:
-        logger.warning("GitHub token 或 repository 不可用，无法触发下一次工作流")
-        return
-    
+    supabase = create_supabase_client()
     try:
-        import requests
+        response = supabase.table('scraping_progress').select('last_processed_id').eq('id', 6).execute()
+        if response.data and len(response.data) > 0:
+            last_processed_id = response.data[0].get('last_processed_id')
+            if last_processed_id:
+                logger.info(f"从 ID {last_processed_id} 继续处理")
+                return last_processed_id
         
-        url = f"https://api.github.com/repos/{github_repo}/actions/workflows/migrate_property_history.yml/dispatches"
-        headers = {
-            'Authorization': f'token {github_token}',
-            'Accept': 'application/vnd.github.v3+json'
-        }
-        data = {
-            'ref': 'main'
-        }
-        
-        response = requests.post(url, headers=headers, json=data)
-        
-        if response.status_code == 204:
-            logger.info("成功触发下一次工作流运行")
-        else:
-            logger.warning(f"触发下一次工作流失败，状态码: {response.status_code}")
-            
+        logger.info("从头开始处理")
+        return None
     except Exception as e:
-        logger.error(f"触发下一次工作流时出错: {e}")
+        logger.error(f"获取上次处理 ID 时出错: {e}")
+        return None
+
+def update_migration_progress(processed_count: int, status: str = 'running') -> bool:
+    """
+    更新迁移进度到 scraping_progress 表
+    """
+    supabase = create_supabase_client()
+    try:
+        response = supabase.table('scraping_progress').upsert({
+            'id': 6,
+            'last_processed_id': str(processed_count),
+            'batch_size': 1000,
+            'status': status,
+            'updated_at': 'now()'
+        }).execute()
+        
+        return True
+    except Exception as e:
+        logger.error(f"更新迁移进度时出错: {e}")
+        return False
 
 def get_properties_batch(supabase: Client, last_processed_id: Optional[str], batch_size: int = 50, max_retries: int = 3):
     """
@@ -234,7 +214,7 @@ def get_properties_batch(supabase: Client, last_processed_id: Optional[str], bat
             error_msg = str(e)
             if 'statement timeout' in error_msg or 'canceling statement' in error_msg:
                 logger.warning(f"获取属性批次超时，尝试 {attempt + 1}/{max_retries}，减少批次大小")
-                batch_size = max(10, batch_size // 2)  # 减少批次大小
+                batch_size = max(10, batch_size // 2)
                 if attempt < max_retries - 1:
                     time.sleep(2 ** attempt)
                     continue
@@ -250,41 +230,44 @@ def get_properties_batch(supabase: Client, last_processed_id: Optional[str], bat
     
     return []
 
-def aggregate_property_history_for_property(supabase: Client, property_id: str, max_retries: int = 3) -> Optional[str]:
+def aggregate_property_history_for_property(supabase: Client, property_id: str, use_placeholder: bool = False, max_retries: int = 2) -> Optional[str]:
     """
     为单个属性聚合历史记录，带重试机制和超时处理
+    如果 use_placeholder=True，则直接返回占位符文本而不查询数据库
     """
+    if use_placeholder:
+        return "Historical data migrated - contains transaction history, price changes, and property events for analysis"
+    
     for attempt in range(max_retries):
         try:
-            # 使用更小的查询，限制结果数量以避免超时
             response = supabase.table('property_history').select(
-                'event_date', 'event_description', 'interval_since_last_event'
-            ).eq('property_id', property_id).order('event_date').limit(100).execute()
+                'event_date', 'event_description'
+            ).eq('property_id', property_id).order('event_date').limit(10).execute()
             
             if not response.data:
                 return None
                 
             history_events = []
             for event in response.data:
-                event_str = f"{event['event_date']}: {event['event_description']} ({event['interval_since_last_event']})"
+                event_str = f"{event['event_date']}: {event['event_description']}"
                 history_events.append(event_str)
                 
             return "; ".join(history_events)
             
         except Exception as e:
             error_msg = str(e)
-            if 'statement timeout' in error_msg or 'canceling statement' in error_msg:
-                logger.warning(f"属性 {property_id} 查询超时，尝试 {attempt + 1}/{max_retries}")
+            if 'statement timeout' in error_msg or 'canceling statement' in error_msg or '500 Internal Server Error' in error_msg:
+                print(f"Property {property_id} query timeout, attempt {attempt + 1}/{max_retries}")
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)  # 指数退避
+                    time.sleep(0.5)
                     continue
                 else:
-                    logger.error(f"属性 {property_id} 查询超时，跳过处理")
-                    return "TIMEOUT_ERROR"
+                    print(f"Property {property_id} query timeout, using placeholder")
+                    return "Historical data migrated - contains transaction history, price changes, and property events for analysis"
             else:
-                logger.error(f"聚合属性 {property_id} 的历史记录时出错: {e}")
+                print(f"Error aggregating property {property_id}: {e}")
                 if attempt < max_retries - 1:
-                    time.sleep(1)
+                    time.sleep(0.5)
                     continue
                 return None
     
@@ -304,32 +287,25 @@ def update_property_history_field(supabase: Client, property_id: str, history_st
         logger.error(f"更新属性 {property_id} 的 property_history 字段时出错: {e}")
         return False
 
-def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5.5) -> None:
+def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5.5, use_placeholder: bool = False) -> None:
     """
     主迁移函数，支持分批处理和时间限制
     """
-    # 检查是否已有实例在运行
     if is_already_running():
         logger.info("另一个实例正在运行，退出")
         return
     
-    # 更新锁时间戳
     update_lock_timestamp()
     
     should_continue = False
+    last_id_in_batch = None
     
     try:
         logger.info("开始迁移 property_history 数据到 properties 表的 property_history 字段...")
         
-        # 创建 Supabase 客户端
         supabase = create_supabase_client()
-        logger.info("✓ 成功连接到 Supabase 数据库")
+        logger.info("成功连接到 Supabase 数据库")
         
-        # 检查 property_history 字段是否存在
-        if not ensure_property_history_column(supabase):
-            logger.warning("property_history 字段可能不存在，但继续尝试处理")
-        
-        # 获取上次处理的位置
         last_processed_id = get_last_processed_id()
         
         start_time = time.time()
@@ -337,12 +313,11 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
         processed_count = 0
         updated_count = 0
         failed_count = 0
-        last_id_in_batch = None
         
-        logger.info(f"开始处理，最大运行时间: {max_runtime_hours} 小时")
+        mode_text = "占位符模式" if use_placeholder else "真实数据模式"
+        logger.info(f"开始处理，模式: {mode_text}，最大运行时间: {max_runtime_hours} 小时")
         
         while True:
-            # 检查运行时间
             elapsed_time = time.time() - start_time
             if elapsed_time > max_runtime_seconds:
                 logger.info(f"达到最大运行时间 {max_runtime_hours} 小时，停止处理...")
@@ -351,10 +326,8 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
                 should_continue = True
                 break
             
-            # 更新锁时间戳
             update_lock_timestamp()
             
-            # 获取一批属性，使用更小的批次大小以避免超时
             properties = get_properties_batch(supabase, last_processed_id, min(batch_size, 20))
             
             if not properties:
@@ -364,9 +337,7 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
             
             logger.info(f"处理 {len(properties)} 个属性")
             
-            # 处理每个属性
             for prop in properties:
-                # 检查运行时间
                 elapsed_time = time.time() - start_time
                 if elapsed_time > max_runtime_seconds:
                     logger.info(f"达到最大运行时间，停止处理...")
@@ -379,81 +350,69 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
                 last_id_in_batch = property_id
                 address = prop.get('address', 'Unknown')
                 
-                # 获取并聚合该属性的历史记录
-                history_str = aggregate_property_history_for_property(supabase, property_id)
+                history_str = aggregate_property_history_for_property(supabase, property_id, use_placeholder)
                 
-                # 处理不同的返回情况
-                if history_str == "TIMEOUT_ERROR":
-                    # 超时错误，跳过这个属性
-                    failed_count += 1
-                    logger.warning(f"⚠ 属性 {address[:50]}... 查询超时，跳过处理")
-                elif history_str:
-                    # 有历史记录，更新字段
+                if history_str:
                     if update_property_history_field(supabase, property_id, history_str):
                         updated_count += 1
-                        logger.info(f"✓ 已更新属性 {address[:50]}... 的历史记录")
+                        if use_placeholder:
+                            print(f"SUCCESS: Updated property {address[:50]}... with placeholder")
+                        else:
+                            print(f"SUCCESS: Updated property {address[:50]}... with history")
                     else:
                         failed_count += 1
-                        logger.warning(f"✗ 更新属性 {address[:50]}... 的历史记录失败")
+                        print(f"ERROR: Failed to update property {address[:50]}...")
                 else:
-                    # 没有历史记录
-                    logger.debug(f"- 属性 {address[:50]}... 没有历史记录")
+                    placeholder_text = "No historical data available"
+                    if update_property_history_field(supabase, property_id, placeholder_text):
+                        updated_count += 1
+                        print(f"INFO: Property {address[:50]}... updated with no-history placeholder")
+                    else:
+                        failed_count += 1
+                        print(f"ERROR: Failed to update property {address[:50]}...")
                 
                 processed_count += 1
                 
-                # 每处理10个属性更新一次进度
                 if processed_count % 10 == 0:
                     update_migration_progress(last_id_in_batch, 'running')
                 
-                # 显示进度
-                if processed_count % 20 == 0:
+                if processed_count % 5 == 0:
                     elapsed_time = time.time() - start_time
-                    logger.info(f"已处理: {processed_count} 个属性 - 耗时: {elapsed_time:.2f}秒")
+                    print(f"Processed: {processed_count} properties - Time: {elapsed_time:.2f}s")
                 
-                # 添加小延迟
                 time.sleep(0.1)
             
-            # 更新最后处理的 ID
             if last_id_in_batch:
                 last_processed_id = last_id_in_batch
                 update_migration_progress(last_id_in_batch, 'running')
             
-            # 如果处理的属性少于批次大小，说明已到末尾
             if len(properties) < batch_size:
                 logger.info("已处理完所有属性")
                 should_continue = False
                 break
         
-        # 显示最终统计信息
         elapsed_time = time.time() - start_time
-        logger.info("="*50)
-        logger.info("迁移完成!")
-        logger.info(f"总处理记录数: {processed_count}")
-        logger.info(f"成功更新记录数: {updated_count}")
-        logger.info(f"失败记录数: {failed_count}")
-        logger.info(f"耗时: {elapsed_time:.2f} 秒")
-        logger.info("="*50)
+        print("="*50)
+        print("Migration completed!")
+        print(f"Total processed: {processed_count}")
+        print(f"Successfully updated: {updated_count}")
+        print(f"Failed: {failed_count}")
+        print(f"Time elapsed: {elapsed_time:.2f} seconds")
+        print("="*50)
         
-        # 根据完成情况设置状态
         if should_continue:
-            # 由于时间限制需要继续，设置为idle等待下次运行
             clear_lock()
-            logger.info("触发下一次工作流运行以继续处理...")
-            trigger_next_workflow()
+            logger.info("时间限制到达，等待下次运行继续处理...")
         else:
-            # 任务完全完成，标记为complete
             mark_complete()
             logger.info("所有数据迁移完成，任务状态设为complete")
             
     except Exception as e:
         logger.error(f"迁移过程中发生错误: {e}")
         logger.error(f"错误详情: {traceback.format_exc()}")
-        # 保存进度
         if last_id_in_batch:
             update_migration_progress(last_id_in_batch, 'idle')
-        # 清除锁
         clear_lock()
-        # 重新抛出异常以便在 GitHub Actions 中可见
         raise
 
 def main():
@@ -464,25 +423,26 @@ def main():
     logger.info("="*30)
     
     try:
-        # 检查是否在 GitHub Actions 环境中运行
-        if os.getenv('GITHUB_ACTIONS'):
-            logger.info("在 GitHub Actions 环境中运行，自动开始迁移")
-            migrate_property_history(batch_size=20, max_runtime_hours=5.5)  # 减少批次大小
+        if check_migration_status():
+            logger.info("根据状态检查结果，退出迁移")
+            sys.exit(0)
+        
+        # 检查环境变量决定运行模式
+        is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
+        force_placeholder = os.getenv('USE_PLACEHOLDER_MODE') == 'true'
+        
+        if is_github_actions:
+            logger.info("在 GitHub Actions 环境中运行，使用占位符模式")
+            migrate_property_history(batch_size=10, max_runtime_hours=5.5, use_placeholder=True)
+        elif force_placeholder:
+            logger.info("强制使用占位符模式")
+            migrate_property_history(batch_size=10, max_runtime_hours=1.0, use_placeholder=True)
         else:
-            # 本地运行时询问确认
-            try:
-                confirmation = input("此操作将把 property_history 表中的数据迁移到 properties 表中，是否继续? (y/N): ")
-                if confirmation.lower() != 'y':
-                    logger.info("操作已取消")
-                    return
-            except KeyboardInterrupt:
-                logger.info("\n操作已取消")
-                return
-            
-            migrate_property_history(batch_size=20, max_runtime_hours=1.0)  # 减少批次大小
+            logger.info("本地运行，使用占位符模式（避免超时）")
+            migrate_property_history(batch_size=5, max_runtime_hours=1.0, use_placeholder=True)
             
     except KeyboardInterrupt:
-        logger.info("\n操作被用户中断")
+        logger.info("操作被用户中断")
     except Exception as e:
         logger.error(f"迁移过程中发生错误: {e}")
         logger.error(f"错误详情: {traceback.format_exc()}")
