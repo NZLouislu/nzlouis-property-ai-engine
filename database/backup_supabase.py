@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
 Supabase Database Backup Script
-Backs up data from Supabase tables to local storage
-Supports both full backup and chunked backup for large databases
+Creates complete database backups using pg_dump for full recovery capability
+Supports both PostgreSQL native backup and JSON data export
 """
 
 import os
 import json
 import logging
+import subprocess
+import sys
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from supabase import create_client, Client
 
 # Load environment variables from .env file
@@ -30,11 +32,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Get Supabase configuration from environment variables
+# Get configuration from environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Default chunk size for large table backup
+# Backup configuration
+BACKUP_DIR = "database/backup"
 DEFAULT_CHUNK_SIZE = 1000
 
 # Known tables in the database
@@ -60,6 +64,167 @@ def create_supabase_client() -> Client:
         raise ValueError("SUPABASE_URL and SUPABASE_KEY environment variables must be set")
     
     return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def ensure_backup_directory():
+    """Ensure backup directory exists"""
+    if not os.path.exists(BACKUP_DIR):
+        os.makedirs(BACKUP_DIR)
+        logger.info(f"Created backup directory: {BACKUP_DIR}")
+
+def update_backup_status(status: str, message: str = ""):
+    """Update backup status in scraping_progress table"""
+    try:
+        supabase = create_supabase_client()
+        
+        # Use ID 7 for database backup task
+        data = {
+            'status': status,
+            'updated_at': 'now()'
+        }
+        
+        if message:
+            data['last_processed_id'] = message
+        
+        # Try to update existing record
+        response = supabase.table('scraping_progress').update(data).eq('id', 7).execute()
+        
+        if not response.data:
+            # If no record exists, create one
+            data['id'] = 7
+            data['batch_size'] = 1
+            supabase.table('scraping_progress').insert(data).execute()
+            
+        logger.info(f"Updated backup status to: {status}")
+        
+    except Exception as e:
+        logger.warning(f"Could not update backup status: {e}")
+
+def create_pg_dump_backup() -> Optional[str]:
+    """
+    Create a complete database backup using pg_dump
+    
+    Returns:
+        str: Path to the backup file if successful, None otherwise
+    """
+    if not DATABASE_URL:
+        logger.error("DATABASE_URL environment variable is not set")
+        return None
+    
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"supabase_complete_backup_{timestamp}.dump"
+        backup_path = os.path.join(BACKUP_DIR, backup_filename)
+        
+        logger.info("Starting complete database backup with pg_dump...")
+        
+        # Use pg_dump to create a complete backup
+        cmd = [
+            'pg_dump',
+            DATABASE_URL,
+            '--format=custom',  # Custom format for compression and selective restore
+            '--verbose',
+            '--no-owner',       # Don't include ownership commands
+            '--no-privileges',  # Don't include privilege commands
+            '--file', backup_path
+        ]
+        
+        logger.info(f"Running command: {' '.join(cmd[:2])} [DATABASE_URL] {' '.join(cmd[2:])}")
+        
+        # Run pg_dump
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=3600  # 1 hour timeout
+        )
+        
+        if result.returncode == 0:
+            # Get file size
+            file_size = os.path.getsize(backup_path)
+            file_size_mb = file_size / (1024 * 1024)
+            
+            logger.info(f"Database backup completed successfully!")
+            logger.info(f"Backup file: {backup_path}")
+            logger.info(f"File size: {file_size_mb:.2f} MB")
+            
+            # Also create a SQL text backup for easier inspection
+            sql_filename = f"supabase_backup_{timestamp}.sql"
+            sql_path = os.path.join(BACKUP_DIR, sql_filename)
+            
+            sql_cmd = [
+                'pg_dump',
+                DATABASE_URL,
+                '--format=plain',   # Plain SQL format
+                '--verbose',
+                '--no-owner',
+                '--no-privileges',
+                '--file', sql_path
+            ]
+            
+            logger.info("Creating additional SQL text backup...")
+            sql_result = subprocess.run(sql_cmd, capture_output=True, text=True, timeout=1800)
+            
+            if sql_result.returncode == 0:
+                sql_size = os.path.getsize(sql_path)
+                sql_size_mb = sql_size / (1024 * 1024)
+                logger.info(f"SQL backup created: {sql_path} ({sql_size_mb:.2f} MB)")
+            else:
+                logger.warning(f"SQL backup failed: {sql_result.stderr}")
+            
+            return backup_path
+            
+        else:
+            logger.error(f"pg_dump failed with return code {result.returncode}")
+            logger.error(f"Error output: {result.stderr}")
+            return None
+            
+    except subprocess.TimeoutExpired:
+        logger.error("Database backup timed out after 1 hour")
+        return None
+    except Exception as e:
+        logger.error(f"Error creating database backup: {e}")
+        return None
+
+def create_metadata_file(backup_path: str, json_backup_path: str = None):
+    """Create a metadata file with backup information"""
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        metadata_filename = f"backup_metadata_{timestamp}.json"
+        metadata_path = os.path.join(BACKUP_DIR, metadata_filename)
+        
+        metadata = {
+            "backup_timestamp": datetime.utcnow().isoformat(),
+            "backup_date": datetime.utcnow().strftime("%Y-%m-%d"),
+            "backup_time": datetime.utcnow().strftime("%H:%M:%S"),
+            "backup_type": "complete_database",
+            "pg_dump_file": os.path.basename(backup_path) if backup_path else None,
+            "json_backup_file": os.path.basename(json_backup_path) if json_backup_path else None,
+            "database_url_provided": bool(DATABASE_URL),
+            "supabase_url": SUPABASE_URL,
+            "backup_method": "pg_dump + json_export",
+            "restore_instructions": {
+                "pg_dump_restore": "pg_restore -d TARGET_DATABASE_URL backup_file.dump",
+                "sql_restore": "psql TARGET_DATABASE_URL < backup_file.sql",
+                "json_restore": "Use custom script to import JSON data"
+            }
+        }
+        
+        # Add file sizes if files exist
+        if backup_path and os.path.exists(backup_path):
+            metadata["pg_dump_file_size_mb"] = os.path.getsize(backup_path) / (1024 * 1024)
+        
+        if json_backup_path and os.path.exists(json_backup_path):
+            metadata["json_file_size_mb"] = os.path.getsize(json_backup_path) / (1024 * 1024)
+        
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2, default=str)
+        
+        logger.info(f"Backup metadata saved to: {metadata_path}")
+        return metadata_path
+        
+    except Exception as e:
+        logger.error(f"Error creating metadata file: {e}")
+        return None
 
 def get_all_tables_and_views(client: Client) -> List[str]:
     """
@@ -290,30 +455,91 @@ def save_backup_to_file(backup_data: Dict[str, Any], filename: str = None) -> st
     """
     if not filename:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"supabase_backup_{timestamp}.json"
+        filename = f"supabase_json_backup_{timestamp}.json"
     
     # Ensure backup directory exists
-    backup_dir = "backup"
-    if not os.path.exists(backup_dir):
-        os.makedirs(backup_dir)
+    ensure_backup_directory()
     
-    filepath = os.path.join(backup_dir, filename)
+    filepath = os.path.join(BACKUP_DIR, filename)
     
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(backup_data, f, indent=2, default=str)
         
-        logger.info(f"Backup saved to: {filepath}")
+        logger.info(f"JSON backup saved to: {filepath}")
         return filepath
         
     except Exception as e:
         logger.error(f"Error saving backup to file: {str(e)}")
         raise
 
-def backup_database(use_chunked: bool = True, chunk_size: int = DEFAULT_CHUNK_SIZE, large_table_threshold: int = 10000) -> str:
+def backup_database_complete() -> Dict[str, str]:
     """
-    Main function to backup Supabase database
-    Backs up all tables, views and their structures
+    Main function to create complete Supabase database backup
+    Creates both pg_dump backup (for full recovery) and JSON backup (for data inspection)
+    
+    Returns:
+        Dict[str, str]: Dictionary with paths to created backup files
+    """
+    logger.info("Starting complete Supabase database backup")
+    
+    # Ensure backup directory exists
+    ensure_backup_directory()
+    
+    # Update status to running
+    update_backup_status('running', 'Starting database backup')
+    
+    backup_files = {}
+    
+    try:
+        # 1. Create complete database backup using pg_dump
+        logger.info("Creating complete database backup with pg_dump...")
+        pg_dump_path = create_pg_dump_backup()
+        
+        if pg_dump_path:
+            backup_files['pg_dump'] = pg_dump_path
+            logger.info("✓ Complete database backup created successfully")
+        else:
+            logger.warning("✗ pg_dump backup failed, continuing with JSON backup only")
+        
+        # 2. Create JSON data backup for inspection
+        logger.info("Creating JSON data backup...")
+        json_backup_path = backup_database_json()
+        
+        if json_backup_path:
+            backup_files['json'] = json_backup_path
+            logger.info("✓ JSON data backup created successfully")
+        
+        # 3. Create metadata file
+        metadata_path = create_metadata_file(
+            backup_files.get('pg_dump'), 
+            backup_files.get('json')
+        )
+        
+        if metadata_path:
+            backup_files['metadata'] = metadata_path
+        
+        # Update status to complete
+        if backup_files:
+            update_backup_status('complete', f"Backup completed with {len(backup_files)} files")
+            logger.info(f"✓ Complete database backup finished successfully!")
+            logger.info(f"Created {len(backup_files)} backup files:")
+            for backup_type, path in backup_files.items():
+                logger.info(f"  - {backup_type}: {path}")
+        else:
+            update_backup_status('idle', 'Backup failed - no files created')
+            logger.error("✗ No backup files were created")
+        
+        return backup_files
+        
+    except Exception as e:
+        logger.error(f"Complete database backup failed: {str(e)}")
+        update_backup_status('idle', f'Backup failed: {str(e)}')
+        raise
+
+def backup_database_json(use_chunked: bool = True, chunk_size: int = DEFAULT_CHUNK_SIZE, large_table_threshold: int = 10000) -> str:
+    """
+    Create JSON backup of database data for inspection
     
     Args:
         use_chunked (bool): Whether to use chunked backup for large tables
@@ -321,9 +547,9 @@ def backup_database(use_chunked: bool = True, chunk_size: int = DEFAULT_CHUNK_SI
         large_table_threshold (int): Threshold to determine if a table is large and needs chunked backup
         
     Returns:
-        str: Path to the created backup file
+        str: Path to the created JSON backup file
     """
-    logger.info("Starting Supabase database backup")
+    logger.info("Starting JSON data backup")
     logger.info(f"Chunked backup: {use_chunked}, Chunk size: {chunk_size}, Large table threshold: {large_table_threshold}")
     
     try:
@@ -340,7 +566,8 @@ def backup_database(use_chunked: bool = True, chunk_size: int = DEFAULT_CHUNK_SI
                 "tables_and_views_backed_up": [],
                 "total_record_count": 0,
                 "backup_method": "chunked" if use_chunked else "full",
-                "chunk_size": chunk_size if use_chunked else None
+                "chunk_size": chunk_size if use_chunked else None,
+                "backup_type": "json_data_only"
             },
             "tables": {},
             "structures": {}
@@ -376,21 +603,72 @@ def backup_database(use_chunked: bool = True, chunk_size: int = DEFAULT_CHUNK_SI
         # Save to file
         backup_filepath = save_backup_to_file(all_backup_data)
         
-        logger.info(f"Database backup completed successfully. Total records: {all_backup_data['backup_metadata']['total_record_count']}")
+        logger.info(f"JSON data backup completed successfully. Total records: {all_backup_data['backup_metadata']['total_record_count']}")
         return backup_filepath
         
     except Exception as e:
-        logger.error(f"Database backup failed: {str(e)}")
+        logger.error(f"JSON database backup failed: {str(e)}")
         raise
 
 if __name__ == "__main__":
     try:
-        # Use chunked backup by default for large databases
-        backup_file = backup_database(use_chunked=True, chunk_size=1000)
-        print(f"Backup completed successfully. File saved to: {backup_file}")
+        logger.info("=" * 60)
+        logger.info("STARTING COMPLETE SUPABASE DATABASE BACKUP")
+        logger.info("=" * 60)
+        
+        # Check required environment variables
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            raise ValueError("SUPABASE_URL and SUPABASE_KEY environment variables must be set")
+        
+        if not DATABASE_URL:
+            logger.warning("DATABASE_URL not set - pg_dump backup will be skipped")
+            logger.info("Only JSON data backup will be created")
+        
+        # Create complete backup (pg_dump + JSON)
+        backup_files = backup_database_complete()
+        
+        if backup_files:
+            logger.info("=" * 60)
+            logger.info("BACKUP COMPLETED SUCCESSFULLY!")
+            logger.info("=" * 60)
+            logger.info("Created backup files:")
+            
+            for backup_type, filepath in backup_files.items():
+                logger.info(f"  {backup_type.upper()}: {filepath}")
+            
+            # Print restore instructions
+            logger.info("
+RESTORE INSTRUCTIONS:")
+            logger.info("-" * 40)
+            
+            if 'pg_dump' in backup_files:
+                logger.info("To restore complete database:")
+                logger.info(f"  pg_restore -d TARGET_DATABASE_URL {backup_files['pg_dump']}")
+                logger.info("  OR")
+                sql_file = backup_files['pg_dump'].replace('.dump', '.sql')
+                if os.path.exists(sql_file):
+                    logger.info(f"  psql TARGET_DATABASE_URL < {sql_file}")
+            
+            if 'json' in backup_files:
+                logger.info("JSON backup contains data for inspection/analysis")
+                logger.info("Use custom scripts to import specific tables if needed")
+            
+            print(f"
+✓ Backup completed successfully!")
+            print(f"✓ Created {len(backup_files)} backup files in {BACKUP_DIR}/")
+            
+        else:
+            logger.error("No backup files were created!")
+            print("✗ Backup failed - no files were created")
+            exit(1)
+            
     except Exception as e:
         logger.error(f"Backup process failed: {str(e)}")
-        print(f"Error: {str(e)}")
-        print("Please make sure SUPABASE_URL and SUPABASE_KEY environment variables are set correctly.")
-        print("You can set them in a .env file or as system environment variables.")
+        print(f"✗ Error: {str(e)}")
+        print("
+Please check:")
+        print("- SUPABASE_URL and SUPABASE_KEY environment variables are set correctly")
+        print("- DATABASE_URL is set for complete pg_dump backup")
+        print("- Network connectivity to Supabase")
+        print("- PostgreSQL client tools are installed (for pg_dump)")
         exit(1)
