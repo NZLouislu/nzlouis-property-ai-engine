@@ -32,7 +32,7 @@ jobs:
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-      run: python database/force_reset_expired_status.py
+      run: python database/force_reset_expired_status.py migrate_property_history
 
     - name: Run property history migration
       env:

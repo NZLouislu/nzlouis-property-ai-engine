@@ -40,7 +40,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: python database/force_reset_expired_status.py
+        run: python database/force_reset_expired_status.py real_estate_auckland
 
       - name: Run scraper
         run: python real_estate_auckland.py
