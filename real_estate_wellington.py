@@ -148,7 +148,7 @@ def is_already_running():
                 # Check if the lock is still valid (less than 1 hour old)
                 current_time = datetime.now(timezone.utc)
                 time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 3600:  # 1 hour in seconds
+                if time_diff.total_seconds() < 1800:  # 30 minutes in seconds
                     logger.info("Another Wellington scraper instance is already running. Skipping execution.")
                     return True
                 else:

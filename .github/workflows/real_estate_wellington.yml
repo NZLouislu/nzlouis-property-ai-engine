@@ -6,7 +6,7 @@ on:
     - cron: "*/30 * * * *" # Check status every 30 minutes
 
 concurrency:
-  group: scrape-realestate-wellington-${{ github.run_id }}
+  group: scrape-realestate-wellington
   cancel-in-progress: true
 
 jobs:
