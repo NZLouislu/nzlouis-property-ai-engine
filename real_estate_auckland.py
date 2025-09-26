@@ -125,24 +125,14 @@ def is_already_running():
                 return True
             
             if status == 'stop':
-                logger.info("Auckland scraper task was stopped. Resuming execution.")
+                logger.info("Auckland scraper task was manually stopped. Exiting.")
+                return True
                 # Allow execution to continue if status is 'stop'
                 
             # Check if another instance is running
-            if updated_at_str and status == 'running':
-                # Parse the timestamp
-                from datetime import datetime, timezone
-                updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
-                # Check if the lock is still valid (less than 30 minutes old for active running status)
-                current_time = datetime.now(timezone.utc)
-                time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 10 * 60:  # 10 minutes in seconds (reduced from 30)
-                    logger.info(f"Another Auckland scraper instance is running (last update: {time_diff.total_seconds():.0f} seconds ago). Exiting.")
-                    return True
-                else:
-                    # Lock is stale, clear it
-                    logger.info(f"Found stale lock (last update: {time_diff.total_seconds():.0f} seconds ago), clearing it")
-                    clear_lock()
+            if status == 'running':
+                logger.info("Another Auckland scraper instance is running. Exiting.")
+                return True
                 
         return False
     except Exception as e:
@@ -425,7 +415,7 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                             'status': 'idle',
                             'updated_at': 'now()'
                         }).eq('id', 2).execute()
-                        logger.info("Auckland scraper status updated to 'idle' due to timeout.")
+                        logger.info("Auckland scraper status updated to 'idle' due to 5.5 hour timeout. Next action will continue.")
                     except Exception as e:
                         logger.error(f"Error updating status to 'idle': {e}")
                     break

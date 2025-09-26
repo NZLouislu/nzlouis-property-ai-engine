@@ -200,6 +200,10 @@ def is_already_running():
                 logger.info("Task is completed. No execution needed.")
                 return True
             
+            if status == 'stop':
+                logger.info("Task was manually stopped. Exiting.")
+                return True
+            
             if status == 'running':
                 # Check if another instance is running
                 if updated_at_str:
@@ -209,13 +213,10 @@ def is_already_running():
                     # Check if the lock is still valid (less than 30 minutes old for active running status)
                     current_time = datetime.now(timezone.utc)
                     time_diff = current_time - updated_at
-                    if time_diff.total_seconds() < 10 * 60:  # 10 minutes in seconds (reduced from 30)
-                        logger.info(f"Another instance is running (last update: {time_diff.total_seconds():.0f} seconds ago). Skipping execution.")
-                        return True
-                    else:
-                        # Lock is stale, clear it
-                        logger.info("Found stale lock, clearing it.")
-                        clear_lock()
+                # Check if another instance is running
+                if status == 'running':
+                    logger.info("Another instance is running. Skipping execution.")
+                    return True
             
             # For 'stop' status, we allow execution to continue the stopped task
             # For 'idle' status, we allow execution to start a new task

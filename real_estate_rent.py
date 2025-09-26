@@ -109,15 +109,14 @@ def update_last_processed_page(last_page):
 # Function to check if another instance is already running
 def is_already_running():
     """
-    Check if another instance of the rent scraper is already running or task status.
-    Uses the scraping_progress table to store a lock timestamp.
+    Check if another instance of the rent scraper is already running.
+    Simple check: if status is 'running', exit; only 'idle' allows execution.
     """
     supabase = create_supabase_client()
     try:
-        # Get the lock timestamp and status for rent scraper (id=4)
-        response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 4).execute()
+        # Get the status for rent scraper (id=4)
+        response = supabase.table('scraping_progress').select('status').eq('id', 4).execute()
         if response.data and len(response.data) > 0:
-            updated_at_str = response.data[0].get('updated_at')
             status = response.data[0].get('status', 'idle')
             
             if status == 'complete':
@@ -125,24 +124,12 @@ def is_already_running():
                 return True
             
             if status == 'stop':
-                logger.info("Rent scraper task was stopped. Resuming execution.")
-                # Allow execution to continue if status is 'stop'
-                
-            # Check if another instance is running
-            if updated_at_str and status == 'running':
-                # Parse the timestamp
-                from datetime import datetime, timezone
-                updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
-                # Check if the lock is still valid (less than 10 minutes old for active running status)
-                current_time = datetime.now(timezone.utc)
-                time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 10 * 60:  # 10 minutes in seconds (reduced from 30)
-                    logger.info(f"Another rent scraper instance is running (last update: {time_diff.total_seconds():.0f} seconds ago). Exiting.")
-                    return True
-                else:
-                    # Lock is stale, clear it
-                    logger.info(f"Found stale lock (last update: {time_diff.total_seconds():.0f} seconds ago), clearing it")
-                    clear_lock()
+                logger.info("Rent scraper task was manually stopped. Exiting.")
+                return True
+            
+            if status == 'running':
+                logger.info("Another rent scraper instance is running. Exiting.")
+                return True
                 
         return False
     except Exception as e:
@@ -428,14 +415,14 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                     logger.info(f"Maximum runtime of {max_runtime_hours} hours reached. Stopping...")
                     # Save progress before exiting
                     update_last_processed_page(page_num - 1)
-                    # Update status to 'idle' instead of 'stop' for normal timeout
+                    # Update status to 'idle' for normal timeout, allowing next action to continue
                     supabase = create_supabase_client()
                     try:
                         supabase.table('scraping_progress').update({
                             'status': 'idle',
                             'updated_at': 'now()'
                         }).eq('id', 4).execute()
-                        logger.info("Rent scraper status updated to 'idle' due to timeout.")
+                        logger.info("Rent scraper status updated to 'idle' due to 5.5 hour timeout. Next action will continue.")
                     except Exception as e:
                         logger.error(f"Error updating status to 'idle': {e}")
                     break

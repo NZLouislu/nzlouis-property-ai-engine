@@ -395,13 +395,10 @@ def is_already_running():
                 # Check if the lock is still valid (less than 30 minutes old for active running status)
                 current_time = datetime.now(timezone.utc)
                 time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 10 * 60:  # 10 minutes in seconds (reduced from 30)
-                    logger.info(f"Another PropertyValue Wellington scraper instance is running (last update: {time_diff.total_seconds():.0f} seconds ago). Exiting.")
-                    return True
-                else:
-                    # Lock is stale, clear it
-                    logger.info("Found stale lock, clearing it")
-                    clear_lock()
+            # Check if another instance is running
+            if status == 'running':
+                logger.info("Another PropertyValue Wellington scraper instance is running. Exiting.")
+                return True
                 
         return False
     except Exception as e:

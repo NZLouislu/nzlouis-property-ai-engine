@@ -90,20 +90,9 @@ def is_already_running() -> bool:
                 return True
             
             # Check if another instance is running
-            if updated_at_str and status == 'running':
-                # Parse the timestamp
-                from datetime import datetime, timezone
-                updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
-                # Check if the lock is still valid (less than 30 minutes old for active running status)
-                current_time = datetime.now(timezone.utc)
-                time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 10 * 60:  # 10 minutes in seconds (reduced from 30)
-                    logger.info(f"Another instance is running (last update: {time_diff.total_seconds():.0f} seconds ago), skipping execution")
-                    return True
-                else:
-                    # Lock is stale, clear it
-                    logger.info(f"Found stale lock (last update: {time_diff.total_seconds():.0f} seconds ago), clearing it")
-                    clear_lock()
+            if status == 'running':
+                logger.info("Another instance is running, skipping execution")
+                return True
                 
         return False
     except Exception as e:

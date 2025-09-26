@@ -125,24 +125,14 @@ def is_already_running():
                 return True
             
             if status == 'stop':
-                logger.info("Wellington scraper task was stopped. Resuming execution.")
+                logger.info("Wellington scraper task was manually stopped. Exiting.")
+                return True
                 # Allow execution to continue if status is 'stop'
                 
             # Check if another instance is running
-            if updated_at_str and status == 'running':
-                # Parse the timestamp
-                from datetime import datetime, timezone
-                updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
-                # Check if the lock is still valid (less than 30 minutes old for active running status)
-                current_time = datetime.now(timezone.utc)
-                time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 10 * 60:  # 10 minutes in seconds (reduced from 30)
-                    logger.info(f"Another Wellington scraper instance is running (last update: {time_diff.total_seconds():.0f} seconds ago). Exiting.")
-                    return True
-                else:
-                    # Lock is stale, clear it
-                    logger.info(f"Found stale lock (last update: {time_diff.total_seconds():.0f} seconds ago), clearing it")
-                    clear_lock()
+            if status == 'running':
+                logger.info("Another Wellington scraper instance is running. Exiting.")
+                return True
                 
         return False
     except Exception as e:
