@@ -571,6 +571,8 @@ def main():
     except Exception as e:
         logger.error(f"Error in main function: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
+        # Clear the lock when there's an error
+        clear_lock()
         raise
 
 if __name__ == "__main__":
@@ -579,4 +581,6 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Unexpected error in script execution: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
+        # Clear the lock on error in main execution
+        clear_lock()
         exit(1)

@@ -517,8 +517,10 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
         # Re-raise the exception so it's visible in GitHub Actions logs
         raise
 
-# Run the scraper
-if __name__ == "__main__":
+def main():
+    """
+    Main function to start the scraping process.
+    """
     try:
         # Check if user wants to update images or scrape new properties
         if len(sys.argv) > 1 and sys.argv[1] == 'update_images':
@@ -542,4 +544,10 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Unexpected error in main execution: {str(e)}")
         logger.error(f"Error details: {traceback.format_exc()}")
+        # Clear the lock on error in main function
+        clear_lock()
         sys.exit(1)
+
+# Run the scraper
+if __name__ == "__main__":
+    main()
