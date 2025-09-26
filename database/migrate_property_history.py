@@ -227,7 +227,7 @@ def get_properties_batch(supabase: Client, last_processed_id: Optional[str], bat
             if last_processed_id:
                 query = query.gt('id', last_processed_id)
             
-            response = query.order('id.asc').limit(batch_size).execute()
+            response = query.order('id').limit(batch_size).execute()
             return response.data if response.data else []
             
         except Exception as e:
