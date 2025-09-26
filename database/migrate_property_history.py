@@ -78,6 +78,7 @@ def is_already_running() -> bool:
     try:
         response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 6).execute()
         if response.data and len(response.data) > 0:
+            updated_at_str = response.data[0].get('updated_at')
             status = response.data[0].get('status', 'idle')
             
             if status == 'complete':
@@ -88,10 +89,21 @@ def is_already_running() -> bool:
                 logger.info("Task manually stopped, skipping execution")
                 return True
             
-            # If status is running, exit immediately without checking timestamp
-            if status == 'running':
-                logger.info("Another instance is running, skipping execution")
-                return True
+            # Check if another instance is running
+            if updated_at_str and status == 'running':
+                # Parse the timestamp
+                from datetime import datetime, timezone
+                updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
+                # Check if the lock is still valid (less than 30 minutes old for active running status)
+                current_time = datetime.now(timezone.utc)
+                time_diff = current_time - updated_at
+                if time_diff.total_seconds() < 30 * 60:  # 30 minutes in seconds
+                    logger.info("Another instance is actively running, skipping execution")
+                    return True
+                else:
+                    # Lock is stale, clear it
+                    logger.info("Found stale lock, clearing it")
+                    clear_lock()
                 
         return False
     except Exception as e:
@@ -397,7 +409,7 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
         logger.error(f"Error during migration: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
         if last_id_in_batch:
-            update_migration_progress(last_id_in_batch, 'idle')
+            update_migration_progress(last_id_in_batch, 'stop')
         clear_lock()
         raise
 
