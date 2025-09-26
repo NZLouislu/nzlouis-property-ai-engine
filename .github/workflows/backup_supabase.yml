@@ -62,7 +62,6 @@ jobs:
           fi
 
       - name: Check if backup is already running
-=======
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
