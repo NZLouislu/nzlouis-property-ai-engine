@@ -35,6 +35,9 @@ jobs:
           pip install -r requirements.txt
           playwright install
 
+      - name: Force reset expired status
+        run: python database/force_reset_expired_status.py
+
       - name: Run image updater
         run: python property_image.py update_images
 

@@ -27,9 +27,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Force reset expired status
-        run: python database/force_reset_expired_status.py
-
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -40,6 +37,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           playwright install
+
+      - name: Force reset expired status
+        run: python database/force_reset_expired_status.py
 
       - name: Run scraper
         run: python property_wellington.py

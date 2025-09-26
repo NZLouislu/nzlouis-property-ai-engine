@@ -26,9 +26,10 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install supabase python-dotenv requests
+        pip install -r requirements.txt
 
-
+    - name: Force reset expired status
+      run: python database/force_reset_expired_status.py
 
     - name: Run property history migration
       env:
