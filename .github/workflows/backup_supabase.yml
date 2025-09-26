@@ -48,13 +48,15 @@ jobs:
             PROJECT_REF=$(echo $SUPABASE_URL | sed 's/https:\/\/\([^.]*\).supabase.co/\1/')
             if [ -n "$SUPABASE_DB_PASSWORD" ]; then
               echo "DATABASE_URL=postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres" >> $GITHUB_ENV
-              echo "DATABASE_URL constructed from Supabase project info"
+              echo "✅ DATABASE_URL constructed from Supabase project info"
+              echo "Project Reference: $PROJECT_REF"
+              echo "Note: pg_dump may fail on Supabase free tier due to network restrictions"
             else
-              echo "Warning: Neither DATABASE_URL nor SUPABASE_DB_PASSWORD is set"
-              echo "pg_dump backup will be skipped"
+              echo "⚠️ Neither DATABASE_URL nor SUPABASE_DB_PASSWORD is set"
+              echo "pg_dump backup will be skipped, but JSON backup will still work"
             fi
           else
-            echo "DATABASE_URL is already set"
+            echo "✅ DATABASE_URL is already set"
           fi
 
       - name: Check if backup is already running
@@ -89,19 +91,44 @@ jobs:
 
       - name: Check backup results
         run: |
-          echo "Checking backup results..."
+          echo "=== Checking backup results ==="
           if [ -d "database/backup" ]; then
-            echo "Backup directory exists"
+            echo "✅ Backup directory exists"
+            echo ""
+            echo "Backup files created:"
             ls -la database/backup/
-            BACKUP_COUNT=$(find database/backup -name "*.json" -o -name "*.dump" -o -name "*.sql" | wc -l)
-            echo "Found $BACKUP_COUNT backup files"
-            if [ $BACKUP_COUNT -gt 0 ]; then
-              echo "Backup completed successfully"
+            echo ""
+            
+            # Count different types of backup files
+            JSON_COUNT=$(find database/backup -name "*.json" | wc -l)
+            DUMP_COUNT=$(find database/backup -name "*.dump" | wc -l)
+            SQL_COUNT=$(find database/backup -name "*.sql" | wc -l)
+            TOTAL_COUNT=$((JSON_COUNT + DUMP_COUNT + SQL_COUNT))
+            
+            echo "Backup file summary:"
+            echo "- JSON files: $JSON_COUNT"
+            echo "- Dump files: $DUMP_COUNT"
+            echo "- SQL files: $SQL_COUNT"
+            echo "- Total files: $TOTAL_COUNT"
+            echo ""
+            
+            if [ $JSON_COUNT -gt 0 ]; then
+              echo "✅ JSON data backup successful"
+              
+              if [ $DUMP_COUNT -gt 0 ] || [ $SQL_COUNT -gt 0 ]; then
+                echo "✅ Complete database backup (pg_dump) successful"
+                echo "🎉 Full backup completed successfully!"
+              else
+                echo "⚠️ pg_dump backup failed (common with Supabase free tier)"
+                echo "✅ JSON data backup is sufficient for most use cases"
+                echo "🎉 Backup completed successfully with JSON data!"
+              fi
             else
-              echo "No backup files found"
+              echo "❌ No backup files found - backup failed"
+              exit 1
             fi
           else
-            echo "Backup directory not found"
+            echo "❌ Backup directory not found - backup failed"
             exit 1
           fi
 

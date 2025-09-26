@@ -117,70 +117,132 @@ def create_pg_dump_backup() -> Optional[str]:
         
         logger.info("Starting complete database backup with pg_dump...")
         
-        # Use pg_dump to create a complete backup
-        cmd = [
-            'pg_dump',
-            DATABASE_URL,
-            '--format=custom',  # Custom format for compression and selective restore
-            '--verbose',
-            '--no-owner',       # Don't include ownership commands
-            '--no-privileges',  # Don't include privilege commands
-            '--file', backup_path
-        ]
+        # Parse DATABASE_URL to get connection parameters
+        import urllib.parse
+        parsed = urllib.parse.urlparse(DATABASE_URL)
         
-        logger.info(f"Running command: {' '.join(cmd[:2])} [DATABASE_URL] {' '.join(cmd[2:])}")
+        # For Supabase, try different connection approaches
+        connection_attempts = []
         
-        # Run pg_dump
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=3600  # 1 hour timeout
-        )
+        # Attempt 1: Standard connection
+        if parsed.port:
+            connection_attempts.append({
+                'host': parsed.hostname,
+                'port': str(parsed.port),
+                'user': parsed.username,
+                'password': parsed.password,
+                'dbname': parsed.path.lstrip('/')
+            })
         
-        if result.returncode == 0:
-            # Get file size
-            file_size = os.path.getsize(backup_path)
-            file_size_mb = file_size / (1024 * 1024)
+        # Attempt 2: Supabase pooler connection (port 6543)
+        if parsed.hostname and 'supabase.co' in parsed.hostname:
+            connection_attempts.append({
+                'host': parsed.hostname,
+                'port': '6543',
+                'user': parsed.username,
+                'password': parsed.password,
+                'dbname': parsed.path.lstrip('/')
+            })
+        
+        # Attempt 3: Direct connection with SSL
+        connection_attempts.append({
+            'host': parsed.hostname,
+            'port': str(parsed.port) if parsed.port else '5432',
+            'user': parsed.username,
+            'password': parsed.password,
+            'dbname': parsed.path.lstrip('/'),
+            'sslmode': 'require'
+        })
+        
+        for i, conn_params in enumerate(connection_attempts, 1):
+            logger.info(f"Attempting pg_dump connection #{i} to {conn_params['host']}:{conn_params['port']}")
             
-            logger.info(f"Database backup completed successfully!")
-            logger.info(f"Backup file: {backup_path}")
-            logger.info(f"File size: {file_size_mb:.2f} MB")
+            # Build pg_dump command with connection parameters
+            cmd = ['pg_dump']
             
-            # Also create a SQL text backup for easier inspection
-            sql_filename = f"supabase_backup_{timestamp}.sql"
-            sql_path = os.path.join(BACKUP_DIR, sql_filename)
+            # Add connection parameters
+            cmd.extend(['-h', conn_params['host']])
+            cmd.extend(['-p', conn_params['port']])
+            cmd.extend(['-U', conn_params['user']])
+            cmd.extend(['-d', conn_params['dbname']])
             
-            sql_cmd = [
-                'pg_dump',
-                DATABASE_URL,
-                '--format=plain',   # Plain SQL format
+            # Add SSL mode if specified
+            if 'sslmode' in conn_params:
+                cmd.extend(['--set', f"sslmode={conn_params['sslmode']}"])
+            
+            # Add backup options
+            cmd.extend([
+                '--format=custom',  # Custom format for compression and selective restore
                 '--verbose',
-                '--no-owner',
-                '--no-privileges',
-                '--file', sql_path
-            ]
+                '--no-owner',       # Don't include ownership commands
+                '--no-privileges',  # Don't include privilege commands
+                '--file', backup_path
+            ])
             
-            logger.info("Creating additional SQL text backup...")
-            sql_result = subprocess.run(sql_cmd, capture_output=True, text=True, timeout=1800)
+            # Set password environment variable
+            env = os.environ.copy()
+            env['PGPASSWORD'] = conn_params['password']
             
-            if sql_result.returncode == 0:
-                sql_size = os.path.getsize(sql_path)
-                sql_size_mb = sql_size / (1024 * 1024)
-                logger.info(f"SQL backup created: {sql_path} ({sql_size_mb:.2f} MB)")
-            else:
-                logger.warning(f"SQL backup failed: {sql_result.stderr}")
+            logger.info(f"Running pg_dump with host={conn_params['host']}, port={conn_params['port']}")
             
-            return backup_path
-            
-        else:
-            logger.error(f"pg_dump failed with return code {result.returncode}")
-            logger.error(f"Error output: {result.stderr}")
-            return None
-            
-    except subprocess.TimeoutExpired:
-        logger.error("Database backup timed out after 1 hour")
+            try:
+                # Run pg_dump
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=3600,  # 1 hour timeout
+                    env=env
+                )
+                
+                if result.returncode == 0:
+                    # Success! Get file size
+                    file_size = os.path.getsize(backup_path)
+                    file_size_mb = file_size / (1024 * 1024)
+                    
+                    logger.info(f"✅ Database backup completed successfully!")
+                    logger.info(f"Backup file: {backup_path}")
+                    logger.info(f"File size: {file_size_mb:.2f} MB")
+                    
+                    # Also create a SQL text backup for easier inspection
+                    sql_filename = f"supabase_backup_{timestamp}.sql"
+                    sql_path = os.path.join(BACKUP_DIR, sql_filename)
+                    
+                    sql_cmd = cmd.copy()
+                    sql_cmd[sql_cmd.index('--format=custom')] = '--format=plain'
+                    sql_cmd[sql_cmd.index(backup_path)] = sql_path
+                    
+                    logger.info("Creating additional SQL text backup...")
+                    sql_result = subprocess.run(sql_cmd, capture_output=True, text=True, timeout=1800, env=env)
+                    
+                    if sql_result.returncode == 0:
+                        sql_size = os.path.getsize(sql_path)
+                        sql_size_mb = sql_size / (1024 * 1024)
+                        logger.info(f"SQL backup created: {sql_path} ({sql_size_mb:.2f} MB)")
+                    else:
+                        logger.warning(f"SQL backup failed: {sql_result.stderr}")
+                    
+                    return backup_path
+                    
+                else:
+                    logger.warning(f"pg_dump attempt #{i} failed with return code {result.returncode}")
+                    logger.warning(f"Error output: {result.stderr}")
+                    
+                    # If this is not the last attempt, continue to next
+                    if i < len(connection_attempts):
+                        continue
+                    
+            except subprocess.TimeoutExpired:
+                logger.warning(f"pg_dump attempt #{i} timed out")
+                if i < len(connection_attempts):
+                    continue
+        
+        # All attempts failed
+        logger.error("All pg_dump connection attempts failed")
+        logger.info("This is common with Supabase free tier or network restrictions")
+        logger.info("JSON backup will still be created using Supabase API")
         return None
+            
     except Exception as e:
         logger.error(f"Error creating database backup: {e}")
         return None
