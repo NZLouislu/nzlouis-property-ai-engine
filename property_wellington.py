@@ -326,7 +326,6 @@ def scrape_properties(suburb_url, city, suburb_name):
             return
     
     try:
-            
         soup = BeautifulSoup(response.content, 'html.parser')
         max_pages = get_max_pages(soup)
         logger.info(f"Found {max_pages} pages for suburb: {suburb_name}")
@@ -354,7 +353,7 @@ def scrape_properties(suburb_url, city, suburb_name):
                             # Note: In a real implementation, you would need to get the property ID
                             # from the database after insertion
                             logger.info(f"Cover image URL for {title}: {cover_image_url}")
-                        
+                    
                     # Add a small delay to be respectful to the server
                     time.sleep(1)
                     
@@ -464,6 +463,22 @@ def mark_complete():
         logger.error(f"Error marking PropertyValue Wellington scraper task as complete: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
 
+def clear_lock():
+    """
+    Clear the lock to indicate the process has paused or stopped due to an error.
+    """
+    supabase = create_supabase_client()
+    try:
+        response = supabase.table('scraping_progress').update({
+            'status': 'idle',
+            'updated_at': 'now()'
+        }).eq('id', 5).execute()
+        
+        logger.info("Lock cleared successfully, status set to idle.")
+    except Exception as e:
+        logger.error(f"Error clearing lock: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
 def main():
     """
     Main function to start the scraping process.
@@ -511,8 +526,28 @@ def main():
             suburbs = fetch_suburbs(region['url'])
             logger.info(f"Found {len(suburbs)} suburbs in region: {region['name']}")
             
-            # Process each suburb
+            # Process each suburb with timeout checking
+            start_time = time.time()
+            max_runtime_hours = 5.5
+            max_runtime_seconds = max_runtime_hours * 3600
+            
             for suburb in suburbs:
+                # Check if we've exceeded the maximum runtime
+                elapsed_time = time.time() - start_time
+                if elapsed_time > max_runtime_seconds:
+                    logger.info(f"Maximum runtime of {max_runtime_hours} hours reached. Stopping...")
+                    # Update status to 'stop' to indicate timeout
+                    supabase = create_supabase_client()
+                    try:
+                        supabase.table('scraping_progress').update({
+                            'status': 'stop',
+                            'updated_at': 'now()'
+                        }).eq('id', 5).execute()
+                        logger.info("PropertyValue Wellington scraper status updated to 'stop' due to timeout.")
+                    except Exception as e:
+                        logger.error(f"Error updating status to 'stop': {e}")
+                    return
+                
                 logger.info(f"Processing suburb: {suburb['name']}")
                 scrape_properties(suburb['url'], region['name'], suburb['name'])
                 
@@ -532,6 +567,35 @@ def main():
         logger.error(f"Error in main function: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
         raise
+
+def scrape_properties_with_timeout_check(max_runtime_hours=5.5):
+    """
+    Wrapper function to handle timeout checking for the scraping process.
+    """
+    # Calculate maximum runtime
+    start_time = time.time()
+    max_runtime_seconds = max_runtime_hours * 3600  # Convert hours to seconds
+    
+    try:
+        # Check if we've exceeded the maximum runtime
+        elapsed_time = time.time() - start_time
+        if elapsed_time > max_runtime_seconds:
+            logger.info(f"Maximum runtime of {max_runtime_hours} hours reached. Stopping...")
+            # Update status to 'stop' to indicate timeout
+            supabase = create_supabase_client()
+            try:
+                supabase.table('scraping_progress').update({
+                    'status': 'stop',
+                    'updated_at': 'now()'
+                }).eq('id', 5).execute()
+                logger.info("PropertyValue Wellington scraper status updated to 'stop' due to timeout.")
+            except Exception as e:
+                logger.error(f"Error updating status to 'stop': {e}")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Error in timeout check: {e}")
+        return False
 
 if __name__ == "__main__":
     try:
