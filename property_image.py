@@ -494,8 +494,11 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
         
         # Set appropriate status based on completion
         if should_continue:
-            # Due to time limit, need to continue - set to idle for next run
-            clear_lock()
+            # Due to time limit, need to continue - set status to stop to indicate timeout
+            supabase.table('scraping_progress').update({
+                'status': 'stop',
+                'updated_at': 'now()'
+            }).eq('id', 1).execute()
             logger.info("Triggering next workflow run to continue processing...")
             trigger_next_workflow()
         else:
