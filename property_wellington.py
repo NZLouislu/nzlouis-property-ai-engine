@@ -377,8 +377,12 @@ def is_already_running():
         # Get the lock timestamp and status for PropertyValue Wellington scraper (id=5)
         response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 5).execute()
         if response.data and len(response.data) > 0:
-            updated_at_str = response.data[0].get('updated_at')
             status = response.data[0].get('status', 'idle')
+            
+            # If status is running, exit immediately
+            if status == 'running':
+                logger.info("Another PropertyValue Wellington scraper instance is already running. Exiting.")
+                return True
             
             # Check if task is completed
             if status == 'complete':
@@ -389,30 +393,7 @@ def is_already_running():
             if status == 'stop':
                 logger.info("PropertyValue Wellington scraper task is manually stopped. Skipping execution.")
                 return True
-            
-            # Check if another instance is running
-            if updated_at_str and status == 'running':
-                # Parse the timestamp
-                from datetime import datetime, timezone
-                # Handle different timestamp formats
-                timestamp_str = updated_at_str.replace('Z', '+00:00')
-                # Remove microseconds if they have more than 6 digits
-                if '.' in timestamp_str and '+' in timestamp_str:
-                    date_part, tz_part = timestamp_str.split('+')
-                    if '.' in date_part:
-                        main_part, micro_part = date_part.split('.')
-                        # Truncate microseconds to 6 digits
-                        micro_part = micro_part[:6]
-                        timestamp_str = f"{main_part}.{micro_part}+{tz_part}"
-                updated_at = datetime.fromisoformat(timestamp_str)
-                # Check if the lock is still valid (less than 30 minutes old)
-                current_time = datetime.now(timezone.utc)
-                time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 1800:  # 30 minutes in seconds
-                    logger.info("Another PropertyValue Wellington scraper instance is already running. Skipping execution.")
-                    return True
-                else:
-                    logger.info("Found stale PropertyValue Wellington scraper lock, clearing it.")
+                
         return False
     except Exception as e:
         logger.error(f"Error checking if PropertyValue Wellington scraper is already running: {e}")
