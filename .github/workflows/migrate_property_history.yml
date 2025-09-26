@@ -2,12 +2,12 @@ name: Migrate Property History Data
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 concurrency:
   group: migrate-property-history
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   migrate:
@@ -27,6 +27,26 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+
+    - name: Check if migration is already running
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      run: |
+        python -c "
+        import os
+        from supabase import create_client, Client
+        
+        url = os.environ.get('SUPABASE_URL')
+        key = os.environ.get('SUPABASE_KEY')
+        supabase: Client = create_client(url, key)
+        
+        result = supabase.table('scraping_progress').select('id').eq('id', 6).eq('status', 'running').execute()
+        if result.data:
+            print('Property history migration is already running. Exiting...')
+            exit(1)
+        print('No running property history migration found. Proceeding...')
+        "
 
     - name: Force reset expired status
       env:

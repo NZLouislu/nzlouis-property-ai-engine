@@ -3,11 +3,11 @@ name: Scrape RealEstate Auckland
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *" # Check status every 30 minutes
+    - cron: "0 */6 * * *" # Run every 6 hours to allow completion
 
 concurrency:
   group: scrape-realestate-auckland
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   scrape:
@@ -35,6 +35,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           playwright install
+
+      - name: Check if scraping is already running
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python -c "
+          import os
+          from supabase import create_client, Client
+          
+          url = os.environ.get('SUPABASE_URL')
+          key = os.environ.get('SUPABASE_KEY')
+          supabase: Client = create_client(url, key)
+          
+          result = supabase.table('scraping_progress').select('id').eq('id', 2).eq('status', 'running').execute()
+          if result.data:
+              print('Auckland scraping is already running. Exiting...')
+              exit(1)
+          print('No running Auckland scraping found. Proceeding...')
+          "
 
       - name: Force reset expired status
         env:
