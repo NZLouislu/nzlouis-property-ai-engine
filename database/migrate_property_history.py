@@ -216,43 +216,79 @@ def trigger_next_workflow():
     except Exception as e:
         logger.error(f"触发下一次工作流时出错: {e}")
 
-def get_properties_batch(supabase: Client, last_processed_id: Optional[str], batch_size: int = 100):
+def get_properties_batch(supabase: Client, last_processed_id: Optional[str], batch_size: int = 50, max_retries: int = 3):
     """
-    分批获取需要处理的属性
+    分批获取需要处理的属性，带重试机制
     """
-    try:
-        query = supabase.table('properties').select('id, address')
-        
-        if last_processed_id:
-            query = query.gt('id', last_processed_id)
-        
-        response = query.order('id').limit(batch_size).execute()
-        return response.data if response.data else []
-    except Exception as e:
-        logger.error(f"获取属性批次时出错: {e}")
-        return []
+    for attempt in range(max_retries):
+        try:
+            query = supabase.table('properties').select('id, address')
+            
+            if last_processed_id:
+                query = query.gt('id', last_processed_id)
+            
+            response = query.order('id.asc').limit(batch_size).execute()
+            return response.data if response.data else []
+            
+        except Exception as e:
+            error_msg = str(e)
+            if 'statement timeout' in error_msg or 'canceling statement' in error_msg:
+                logger.warning(f"获取属性批次超时，尝试 {attempt + 1}/{max_retries}，减少批次大小")
+                batch_size = max(10, batch_size // 2)  # 减少批次大小
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+            else:
+                logger.error(f"获取属性批次时出错: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+            
+            if attempt == max_retries - 1:
+                logger.error("获取属性批次失败，返回空列表")
+                return []
+    
+    return []
 
-def aggregate_property_history_for_property(supabase: Client, property_id: str) -> Optional[str]:
+def aggregate_property_history_for_property(supabase: Client, property_id: str, max_retries: int = 3) -> Optional[str]:
     """
-    为单个属性聚合历史记录
+    为单个属性聚合历史记录，带重试机制和超时处理
     """
-    try:
-        response = supabase.table('property_history').select(
-            'event_date', 'event_description', 'interval_since_last_event'
-        ).eq('property_id', property_id).order('event_date').execute()
-        
-        if not response.data:
-            return None
+    for attempt in range(max_retries):
+        try:
+            # 使用更小的查询，限制结果数量以避免超时
+            response = supabase.table('property_history').select(
+                'event_date', 'event_description', 'interval_since_last_event'
+            ).eq('property_id', property_id).order('event_date').limit(100).execute()
             
-        history_events = []
-        for event in response.data:
-            event_str = f"{event['event_date']}: {event['event_description']} ({event['interval_since_last_event']})"
-            history_events.append(event_str)
+            if not response.data:
+                return None
+                
+            history_events = []
+            for event in response.data:
+                event_str = f"{event['event_date']}: {event['event_description']} ({event['interval_since_last_event']})"
+                history_events.append(event_str)
+                
+            return "; ".join(history_events)
             
-        return "; ".join(history_events)
-    except Exception as e:
-        logger.error(f"聚合属性 {property_id} 的历史记录时出错: {e}")
-        return None
+        except Exception as e:
+            error_msg = str(e)
+            if 'statement timeout' in error_msg or 'canceling statement' in error_msg:
+                logger.warning(f"属性 {property_id} 查询超时，尝试 {attempt + 1}/{max_retries}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # 指数退避
+                    continue
+                else:
+                    logger.error(f"属性 {property_id} 查询超时，跳过处理")
+                    return "TIMEOUT_ERROR"
+            else:
+                logger.error(f"聚合属性 {property_id} 的历史记录时出错: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+                return None
+    
+    return None
 
 def update_property_history_field(supabase: Client, property_id: str, history_str: str) -> bool:
     """
@@ -318,8 +354,8 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
             # 更新锁时间戳
             update_lock_timestamp()
             
-            # 获取一批属性
-            properties = get_properties_batch(supabase, last_processed_id, batch_size)
+            # 获取一批属性，使用更小的批次大小以避免超时
+            properties = get_properties_batch(supabase, last_processed_id, min(batch_size, 20))
             
             if not properties:
                 logger.info("没有更多属性需要处理")
@@ -346,8 +382,13 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
                 # 获取并聚合该属性的历史记录
                 history_str = aggregate_property_history_for_property(supabase, property_id)
                 
-                # 如果有历史记录，则更新字段
-                if history_str:
+                # 处理不同的返回情况
+                if history_str == "TIMEOUT_ERROR":
+                    # 超时错误，跳过这个属性
+                    failed_count += 1
+                    logger.warning(f"⚠ 属性 {address[:50]}... 查询超时，跳过处理")
+                elif history_str:
+                    # 有历史记录，更新字段
                     if update_property_history_field(supabase, property_id, history_str):
                         updated_count += 1
                         logger.info(f"✓ 已更新属性 {address[:50]}... 的历史记录")
@@ -355,6 +396,7 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
                         failed_count += 1
                         logger.warning(f"✗ 更新属性 {address[:50]}... 的历史记录失败")
                 else:
+                    # 没有历史记录
                     logger.debug(f"- 属性 {address[:50]}... 没有历史记录")
                 
                 processed_count += 1
@@ -425,7 +467,7 @@ def main():
         # 检查是否在 GitHub Actions 环境中运行
         if os.getenv('GITHUB_ACTIONS'):
             logger.info("在 GitHub Actions 环境中运行，自动开始迁移")
-            migrate_property_history(batch_size=50, max_runtime_hours=5.5)
+            migrate_property_history(batch_size=20, max_runtime_hours=5.5)  # 减少批次大小
         else:
             # 本地运行时询问确认
             try:
@@ -437,7 +479,7 @@ def main():
                 logger.info("\n操作已取消")
                 return
             
-            migrate_property_history(batch_size=50, max_runtime_hours=1.0)
+            migrate_property_history(batch_size=20, max_runtime_hours=1.0)  # 减少批次大小
             
     except KeyboardInterrupt:
         logger.info("\n操作被用户中断")
