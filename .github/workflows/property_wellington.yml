@@ -2,8 +2,8 @@ name: Scrape Wellington Properties stopped
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/30 * * * *" # Check every 30 minutes for faster recovery
+  # schedule:
+  #   - cron: "0 */6 * * *" # Check every 6 hours
 
 concurrency:
   group: scrape-property-wellington
