@@ -502,6 +502,7 @@ def main():
             time.sleep(3)
             
         logger.info("Scraping process completed successfully")
+        mark_complete()
         
     except Exception as e:
         logger.error(f"Error in main function: {e}")

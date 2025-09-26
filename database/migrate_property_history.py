@@ -308,7 +308,7 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
             if elapsed_time > max_runtime_seconds:
                 logger.info(f"Reached max runtime of {max_runtime_hours} hours, stopping processing...")
                 if last_id_in_batch:
-                    update_migration_progress(last_id_in_batch, 'idle')
+                    update_migration_progress(last_id_in_batch, 'stop')
                 should_continue = True
                 break
             
@@ -328,7 +328,7 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
                 if elapsed_time > max_runtime_seconds:
                     logger.info(f"Reached max runtime, stopping processing...")
                     if last_id_in_batch:
-                        update_migration_progress(last_id_in_batch, 'idle')
+                        update_migration_progress(last_id_in_batch, 'stop')
                     should_continue = True
                     break
                 

@@ -162,6 +162,41 @@ def update_lock_timestamp():
         logger.error(f"Error updating Wellington scraper lock timestamp: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
 
+def mark_complete():
+    """
+    Mark the Wellington scraper task as complete.
+    """
+    supabase = create_supabase_client()
+    try:
+        response = supabase.table('scraping_progress').update({
+            'status': 'complete',
+            'updated_at': 'now()'
+        }).eq('id', 3).execute()
+        
+        if response.data:
+            logger.info("Wellington scraper task marked as complete.")
+        else:
+            logger.warning("Failed to mark Wellington scraper task as complete.")
+    except Exception as e:
+        logger.error(f"Error marking Wellington scraper task as complete: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
+def clear_lock():
+    """
+    Clear the lock to indicate the process has paused or stopped due to an error.
+    """
+    supabase = create_supabase_client()
+    try:
+        response = supabase.table('scraping_progress').update({
+            'status': 'idle',
+            'updated_at': 'now()'
+        }).eq('id', 3).execute()
+        
+        logger.info("Lock cleared successfully, status set to idle.")
+    except Exception as e:
+        logger.error(f"Error clearing lock: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
 def handle_dialog(dialog):
     """
     Handle dialog boxes that may appear during scraping.
@@ -444,12 +479,19 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                 time.sleep(60)  # Wait for 1 minute before checking again
                 update_lock_timestamp()  # Update lock timestamp to indicate we're still running
 
+        # If we finished normally (not due to timeout), mark as complete
+        if elapsed_time <= max_runtime_seconds:
+            mark_complete()
+            
     except Exception as e:
         logger.error(f"Error in scraping process: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
         # Save progress before exiting
         if 'page_num' in locals():
             update_last_processed_page(page_num)
+        # Clear the lock when there's an error
+        clear_lock()
+        raise
     finally:
         # If we haven't processed any data, we can exit early
         if not has_data_to_process:
@@ -467,7 +509,8 @@ def force_clear_lock():
         # Set timestamp to 2 hours ago to ensure it's considered expired
         old_time = datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour-2)
         supabase.table('scraping_progress').update({
-            'updated_at': old_time.isoformat()
+            'updated_at': old_time.isoformat(),
+            'status': 'idle'
         }).eq('id', 3).execute()
         logger.info("Force cleared Wellington scraper lock")
         return True
@@ -480,9 +523,6 @@ def main():
     Main function to start the scraping process.
     """
     try:
-        # Force clear lock to allow script to run
-        force_clear_lock()
-        
         # Read base URL from environment variables and append /wellington
         base_url = os.getenv("REALESTATE_URL")
         if not base_url:
