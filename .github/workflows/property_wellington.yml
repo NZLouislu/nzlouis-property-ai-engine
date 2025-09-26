@@ -1,4 +1,4 @@
-name: Scrape Wellington Properties
+name: Scrape Wellington Properties stopped
 
 on:
   workflow_dispatch:
