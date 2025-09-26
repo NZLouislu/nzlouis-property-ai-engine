@@ -1,9 +1,9 @@
 name: Weekly Supabase Database Backup
 
 on:
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:
   schedule:
-    - cron: "0 2 * * 0"  # Run every Sunday at 2:00 AM UTC (weekly automatic backup)
+    - cron: "0 2 * * 0"
 
 concurrency:
   group: backup-supabase
@@ -12,7 +12,7 @@ concurrency:
 jobs:
   backup:
     runs-on: ubuntu-latest
-    timeout-minutes: 330  # 5.5 hours timeout for large databases
+    timeout-minutes: 330
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -45,13 +45,9 @@ jobs:
       - name: Setup DATABASE_URL if not provided
         run: |
           if [ -z "$DATABASE_URL" ]; then
-            # Extract project reference from SUPABASE_URL
             PROJECT_REF=$(echo $SUPABASE_URL | sed 's/https:\/\/\([^.]*\).supabase.co/\1/')
-            
-            # Construct DATABASE_URL for direct database connection
-            # Format: postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
             if [ -n "$SUPABASE_DB_PASSWORD" ]; then
-              export DATABASE_URL="postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres"
+              echo "DATABASE_URL=postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres" >> $GITHUB_ENV
               echo "DATABASE_URL constructed from Supabase project info"
             else
               echo "Warning: Neither DATABASE_URL nor SUPABASE_DB_PASSWORD is set"
@@ -68,24 +64,46 @@ jobs:
         run: |
           python -c "
           import os
-          from supabase import create_client, Client
-          
-          url = os.environ.get('SUPABASE_URL')
-          key = os.environ.get('SUPABASE_KEY')
-          supabase: Client = create_client(url, key)
-          
+          import sys
           try:
+              from supabase import create_client, Client
+              url = os.environ.get('SUPABASE_URL')
+              key = os.environ.get('SUPABASE_KEY')
+              if not url or not key:
+                  print('SUPABASE_URL or SUPABASE_KEY not set. Proceeding...')
+                  sys.exit(0)
+              supabase = create_client(url, key)
               result = supabase.table('scraping_progress').select('id').eq('id', 7).eq('status', 'running').execute()
               if result.data:
                   print('Database backup is already running. Exiting...')
-                  exit(1)
-              print('No running database backup found. Proceeding...')
-          except:
-              print('Could not check backup status. Proceeding...')
+                  sys.exit(1)
+              else:
+                  print('No running database backup found. Proceeding...')
+          except Exception as e:
+              print(f'Could not check backup status: {e}')
+              print('Proceeding with backup...')
           "
 
       - name: Run complete database backup
         run: python database/backup_supabase.py
+
+      - name: Check backup results
+        run: |
+          echo "Checking backup results..."
+          if [ -d "database/backup" ]; then
+            echo "Backup directory exists"
+            ls -la database/backup/
+            BACKUP_COUNT=$(find database/backup -name "*.json" -o -name "*.dump" -o -name "*.sql" | wc -l)
+            echo "Found $BACKUP_COUNT backup files"
+            if [ $BACKUP_COUNT -gt 0 ]; then
+              echo "Backup completed successfully"
+            else
+              echo "No backup files found"
+            fi
+          else
+            echo "Backup directory not found"
+            exit 1
+          fi
 
       - name: Upload backup as artifact
         if: always()
@@ -93,7 +111,7 @@ jobs:
         with:
           name: weekly-supabase-backup-${{ github.run_number }}
           path: database/backup/
-          retention-days: 90  # Keep weekly backups for 3 months
+          retention-days: 90
 
       - name: Upload logs
         if: always()
@@ -102,4 +120,28 @@ jobs:
           name: backup-logs-${{ github.run_number }}
           path: |
             *.log
-          retention-days: 30  # Keep logs for 1 month
+          retention-days: 30
+
+      - name: Cleanup backup status on failure
+        if: failure()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python -c "
+          import os
+          import sys
+          try:
+              from supabase import create_client, Client
+              url = os.environ.get('SUPABASE_URL')
+              key = os.environ.get('SUPABASE_KEY')
+              if url and key:
+                  supabase = create_client(url, key)
+                  supabase.table('scraping_progress').update({
+                      'status': 'idle',
+                      'last_processed_id': 'Backup failed - status reset'
+                  }).eq('id', 7).execute()
+                  print('Backup status reset to idle due to failure')
+          except Exception as e:
+              print(f'Could not reset backup status: {e}')
+          "
