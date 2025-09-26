@@ -133,15 +133,15 @@ def is_already_running():
                 # Parse the timestamp
                 from datetime import datetime, timezone
                 updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
-                # Check if the lock is still valid (less than 30 minutes old for active running status)
+                # Check if the lock is still valid (less than 10 minutes old for active running status)
                 current_time = datetime.now(timezone.utc)
                 time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 30 * 60:  # 30 minutes in seconds
-                    logger.info("Another rent scraper instance is already running. Exiting.")
+                if time_diff.total_seconds() < 10 * 60:  # 10 minutes in seconds (reduced from 30)
+                    logger.info(f"Another rent scraper instance is running (last update: {time_diff.total_seconds():.0f} seconds ago). Exiting.")
                     return True
                 else:
                     # Lock is stale, clear it
-                    logger.info("Found stale lock, clearing it")
+                    logger.info(f"Found stale lock (last update: {time_diff.total_seconds():.0f} seconds ago), clearing it")
                     clear_lock()
                 
         return False
@@ -365,6 +365,16 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
     # Update lock timestamp to indicate we're running
     update_lock_timestamp()
     
+    # Set up signal handlers for graceful shutdown
+    import signal
+    def signal_handler(signum, frame):
+        logger.info(f"Received signal {signum}. Cleaning up...")
+        clear_lock()
+        exit(0)
+    
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
     # Remove Redis client
     # redis_client = create_redis_client()  # Instantiate the Redis client
     all_addresses = []
@@ -448,9 +458,9 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                             print(f"  - {addr}")
                             try:
                                 # Use Supabase to check for duplicates instead of Redis
-                                if not check_real_estate_in_supabase(addr):
+                                if not check_real_estate_rent_in_supabase(addr):
                                     # Insert into Supabase
-                                    insert_real_estate(addr, "To Rent")  # Status is "To Rent" for rental properties
+                                    insert_real_estate_rent(addr, "To Rent")  # Status is "To Rent" for rental properties
                                     # No need to add to Redis anymore
                                     print(f"Added new rental property to database: {addr}")
                                 else:
@@ -488,6 +498,9 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
         # If we finished normally (not due to timeout), mark as complete
         if elapsed_time <= max_runtime_seconds:
             mark_complete()
+        else:
+            # If we stopped due to timeout, set status to idle for next run
+            clear_lock()
             
     except Exception as e:
         logger.error(f"Error in scraping process: {e}")
@@ -499,6 +512,16 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
         clear_lock()
         raise
     finally:
+        # Always clear the lock when exiting if still running
+        try:
+            supabase = create_supabase_client()
+            response = supabase.table('scraping_progress').select('status').eq('id', 4).execute()
+            if response.data and response.data[0].get('status') == 'running':
+                clear_lock()
+                logger.info("Cleared running status in finally block")
+        except Exception as e:
+            logger.error(f"Error in finally block: {e}")
+        
         # If we haven't processed any data, we can exit early
         if not has_data_to_process:
             logger.info("No data to process. Stopping early.")
