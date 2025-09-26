@@ -150,7 +150,8 @@ def update_lock_timestamp():
     try:
         # Update the updated_at timestamp for Wellington scraper (id=3)
         response = supabase.table('scraping_progress').update({
-            'updated_at': 'now()'
+            'updated_at': 'now()',
+            'status': 'running'
         }).eq('id', 3).execute()
         
         if response.data:
