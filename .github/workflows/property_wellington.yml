@@ -1,9 +1,9 @@
-name: Scrape Wellington Properties
+name: Scrape Wellington Properties - STOPPED
 
 on:
   workflow_dispatch:
   # schedule:
-  #   - cron: "*/30 * * * *" # Disabled by user request
+  #   - cron: "*/30 * * * *" # STOPPED - Set to stop status by user request
 
 concurrency:
   group: scrape-property-wellington-${{ github.run_id }}

@@ -102,7 +102,7 @@ def update_migration_progress(processed_count: int, status: str = 'running') -> 
 
 def is_already_running() -> bool:
     """
-    检查是否已有实例在运行
+    检查是否已有实例在运行或任务状态
     """
     supabase = create_supabase_client()
     try:
@@ -111,6 +111,17 @@ def is_already_running() -> bool:
             updated_at_str = response.data[0].get('updated_at')
             status = response.data[0].get('status', 'idle')
             
+            # 检查任务是否已完成
+            if status == 'complete':
+                logger.info("任务已完成，无需执行")
+                return True
+            
+            # 检查任务是否被手动停止
+            if status == 'stop':
+                logger.info("任务被手动停止，跳过执行")
+                return True
+            
+            # 检查是否有实例正在运行
             if updated_at_str and status == 'running':
                 updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
                 current_time = datetime.now(timezone.utc)
@@ -144,7 +155,7 @@ def update_lock_timestamp():
 
 def clear_lock():
     """
-    清除锁，表示进程已完成
+    清除锁，表示进程已暂停
     """
     supabase = create_supabase_client()
     try:
@@ -153,9 +164,24 @@ def clear_lock():
             'updated_at': 'now()'
         }).eq('id', 6).execute()
         
-        logger.info("锁已清除")
+        logger.info("锁已清除，状态设为idle")
     except Exception as e:
         logger.error(f"清除锁时出错: {e}")
+
+def mark_complete():
+    """
+    标记任务为完成状态
+    """
+    supabase = create_supabase_client()
+    try:
+        response = supabase.table('scraping_progress').update({
+            'status': 'complete',
+            'updated_at': 'now()'
+        }).eq('id', 6).execute()
+        
+        logger.info("任务标记为完成")
+    except Exception as e:
+        logger.error(f"标记完成状态时出错: {e}")
 
 def trigger_next_workflow():
     """
@@ -366,13 +392,16 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
         logger.info(f"耗时: {elapsed_time:.2f} 秒")
         logger.info("="*50)
         
-        # 清除锁
-        clear_lock()
-        
-        # 如果需要继续（由于时间限制），触发下一次工作流
+        # 根据完成情况设置状态
         if should_continue:
+            # 由于时间限制需要继续，设置为idle等待下次运行
+            clear_lock()
             logger.info("触发下一次工作流运行以继续处理...")
             trigger_next_workflow()
+        else:
+            # 任务完全完成，标记为complete
+            mark_complete()
+            logger.info("所有数据迁移完成，任务状态设为complete")
             
     except Exception as e:
         logger.error(f"迁移过程中发生错误: {e}")

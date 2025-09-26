@@ -109,16 +109,29 @@ def update_last_processed_page(last_page):
 # Function to check if another instance is already running
 def is_already_running():
     """
-    Check if another instance of the rent scraper is already running.
+    Check if another instance of the rent scraper is already running or task status.
     Uses the scraping_progress table to store a lock timestamp.
     """
     supabase = create_supabase_client()
     try:
-        # Get the lock timestamp for rent scraper (id=4)
-        response = supabase.table('scraping_progress').select('updated_at').eq('id', 4).execute()
+        # Get the lock timestamp and status for rent scraper (id=4)
+        response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 4).execute()
         if response.data and len(response.data) > 0:
             updated_at_str = response.data[0].get('updated_at')
-            if updated_at_str:
+            status = response.data[0].get('status', 'idle')
+            
+            # Check if task is completed
+            if status == 'complete':
+                logger.info("Rent scraper task is completed. No execution needed.")
+                return True
+            
+            # Check if task is manually stopped
+            if status == 'stop':
+                logger.info("Rent scraper task is manually stopped. Skipping execution.")
+                return True
+            
+            # Check if another instance is running
+            if updated_at_str and status == 'running':
                 # Parse the timestamp
                 from datetime import datetime, timezone
                 # Handle different timestamp formats
@@ -132,12 +145,14 @@ def is_already_running():
                         micro_part = micro_part[:6]
                         timestamp_str = f"{main_part}.{micro_part}+{tz_part}"
                 updated_at = datetime.fromisoformat(timestamp_str)
-                # Check if the lock is still valid (less than 6 hours old)
+                # Check if the lock is still valid (less than 30 minutes old)
                 current_time = datetime.now(timezone.utc)
                 time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 3600:  # 1 hour in seconds
+                if time_diff.total_seconds() < 1800:  # 30 minutes in seconds
                     logger.info("Another rent scraper instance is already running. Skipping execution.")
                     return True
+                else:
+                    logger.info("Found stale rent scraper lock, clearing it.")
         return False
     except Exception as e:
         logger.error(f"Error checking if rent scraper is already running: {e}")
@@ -154,7 +169,8 @@ def update_lock_timestamp():
     try:
         # Update the updated_at timestamp for rent scraper (id=4)
         response = supabase.table('scraping_progress').update({
-            'updated_at': 'now()'
+            'updated_at': 'now()',
+            'status': 'running'
         }).eq('id', 4).execute()
         
         if response.data:
@@ -163,6 +179,25 @@ def update_lock_timestamp():
             logger.warning("Failed to update rent scraper lock timestamp.")
     except Exception as e:
         logger.error(f"Error updating rent scraper lock timestamp: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
+def mark_complete():
+    """
+    Mark the rent scraper task as complete.
+    """
+    supabase = create_supabase_client()
+    try:
+        response = supabase.table('scraping_progress').update({
+            'status': 'complete',
+            'updated_at': 'now()'
+        }).eq('id', 4).execute()
+        
+        if response.data:
+            logger.info("Rent scraper task marked as complete.")
+        else:
+            logger.warning("Failed to mark rent scraper task as complete.")
+    except Exception as e:
+        logger.error(f"Error marking rent scraper task as complete: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
 
 def handle_dialog(dialog):

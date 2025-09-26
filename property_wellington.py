@@ -367,13 +367,113 @@ def scrape_properties(suburb_url, city, suburb_name):
         logger.error(f"Error scraping properties for suburb {suburb_name}: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
 
+def is_already_running():
+    """
+    Check if another instance of the PropertyValue Wellington scraper is already running or task status.
+    Uses the scraping_progress table to store a lock timestamp.
+    """
+    supabase = create_supabase_client()
+    try:
+        # Get the lock timestamp and status for PropertyValue Wellington scraper (id=5)
+        response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 5).execute()
+        if response.data and len(response.data) > 0:
+            updated_at_str = response.data[0].get('updated_at')
+            status = response.data[0].get('status', 'idle')
+            
+            # Check if task is completed
+            if status == 'complete':
+                logger.info("PropertyValue Wellington scraper task is completed. No execution needed.")
+                return True
+            
+            # Check if task is manually stopped
+            if status == 'stop':
+                logger.info("PropertyValue Wellington scraper task is manually stopped. Skipping execution.")
+                return True
+            
+            # Check if another instance is running
+            if updated_at_str and status == 'running':
+                # Parse the timestamp
+                from datetime import datetime, timezone
+                # Handle different timestamp formats
+                timestamp_str = updated_at_str.replace('Z', '+00:00')
+                # Remove microseconds if they have more than 6 digits
+                if '.' in timestamp_str and '+' in timestamp_str:
+                    date_part, tz_part = timestamp_str.split('+')
+                    if '.' in date_part:
+                        main_part, micro_part = date_part.split('.')
+                        # Truncate microseconds to 6 digits
+                        micro_part = micro_part[:6]
+                        timestamp_str = f"{main_part}.{micro_part}+{tz_part}"
+                updated_at = datetime.fromisoformat(timestamp_str)
+                # Check if the lock is still valid (less than 30 minutes old)
+                current_time = datetime.now(timezone.utc)
+                time_diff = current_time - updated_at
+                if time_diff.total_seconds() < 1800:  # 30 minutes in seconds
+                    logger.info("Another PropertyValue Wellington scraper instance is already running. Skipping execution.")
+                    return True
+                else:
+                    logger.info("Found stale PropertyValue Wellington scraper lock, clearing it.")
+        return False
+    except Exception as e:
+        logger.error(f"Error checking if PropertyValue Wellington scraper is already running: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+        # In case of error, assume not running to avoid blocking legitimate runs
+        return False
+
+def update_lock_timestamp():
+    """
+    Update the lock timestamp for PropertyValue Wellington scraper (id=5) to indicate it's still running.
+    """
+    supabase = create_supabase_client()
+    try:
+        # Update the updated_at timestamp for PropertyValue Wellington scraper (id=5)
+        response = supabase.table('scraping_progress').update({
+            'updated_at': 'now()',
+            'status': 'running'
+        }).eq('id', 5).execute()
+        
+        if response.data:
+            logger.info("PropertyValue Wellington scraper lock timestamp updated successfully.")
+        else:
+            logger.warning("Failed to update PropertyValue Wellington scraper lock timestamp.")
+    except Exception as e:
+        logger.error(f"Error updating PropertyValue Wellington scraper lock timestamp: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
+def mark_complete():
+    """
+    Mark the PropertyValue Wellington scraper task as complete.
+    """
+    supabase = create_supabase_client()
+    try:
+        response = supabase.table('scraping_progress').update({
+            'status': 'complete',
+            'updated_at': 'now()'
+        }).eq('id', 5).execute()
+        
+        if response.data:
+            logger.info("PropertyValue Wellington scraper task marked as complete.")
+        else:
+            logger.warning("Failed to mark PropertyValue Wellington scraper task as complete.")
+    except Exception as e:
+        logger.error(f"Error marking PropertyValue Wellington scraper task as complete: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
 def main():
     """
     Main function to start the scraping process.
     """
     try:
+        # Check if another instance is already running
+        if is_already_running():
+            logger.info("Another PropertyValue Wellington scraper instance is already running. Exiting.")
+            return
+        
         # Create progress table if it doesn't exist
         create_scraping_progress_table()
+        
+        # Update lock timestamp to indicate we're starting
+        update_lock_timestamp()
         
         # Get base URL from environment variables and construct Wellington URL
         base_url = os.getenv("PROPERTY_VALUE_BASE_URL")

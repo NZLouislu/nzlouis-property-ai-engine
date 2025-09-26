@@ -109,16 +109,29 @@ def update_last_processed_page(last_page):
 # Function to check if another instance is already running
 def is_already_running():
     """
-    Check if another instance of the Wellington scraper is already running.
+    Check if another instance of the Wellington scraper is already running or task status.
     Uses the scraping_progress table to store a lock timestamp.
     """
     supabase = create_supabase_client()
     try:
-        # Get the lock timestamp for Wellington scraper (id=3)
-        response = supabase.table('scraping_progress').select('updated_at').eq('id', 3).execute()
+        # Get the lock timestamp and status for Wellington scraper (id=3)
+        response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 3).execute()
         if response.data and len(response.data) > 0:
             updated_at_str = response.data[0].get('updated_at')
-            if updated_at_str:
+            status = response.data[0].get('status', 'idle')
+            
+            # Check if task is completed
+            if status == 'complete':
+                logger.info("Wellington scraper task is completed. No execution needed.")
+                return True
+            
+            # Check if task is manually stopped
+            if status == 'stop':
+                logger.info("Wellington scraper task is manually stopped. Skipping execution.")
+                return True
+            
+            # Check if another instance is running
+            if updated_at_str and status == 'running':
                 # Parse the timestamp
                 from datetime import datetime, timezone
                 # Handle different timestamp formats
@@ -138,6 +151,8 @@ def is_already_running():
                 if time_diff.total_seconds() < 3600:  # 1 hour in seconds
                     logger.info("Another Wellington scraper instance is already running. Skipping execution.")
                     return True
+                else:
+                    logger.info("Found stale Wellington scraper lock, clearing it.")
         return False
     except Exception as e:
         logger.error(f"Error checking if Wellington scraper is already running: {e}")

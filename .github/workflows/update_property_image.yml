@@ -3,7 +3,7 @@ name: Update Property Images
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "*/30 * * * *" # Check status every 30 minutes
 
 concurrency:
   group: update-property-images

@@ -2,8 +2,8 @@ name: Scrape RealEstate Auckland
 
 on:
   workflow_dispatch:
-  # schedule:
-  #   - cron: "0 */6 * * *" # Disabled by user request
+  schedule:
+    - cron: "*/30 * * * *" # Check status every 30 minutes
 
 concurrency:
   group: scrape-realestate-auckland-${{ github.run_id }}

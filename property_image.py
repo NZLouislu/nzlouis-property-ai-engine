@@ -185,7 +185,7 @@ def update_last_processed_id(last_id):
 # Function to check if another instance is already running
 def is_already_running():
     """
-    Check if another instance of the image updater is already running.
+    Check if another instance of the image updater is already running or task status.
     Uses the scraping_progress table to store a lock timestamp.
     """
     supabase = create_supabase_client()
@@ -196,6 +196,17 @@ def is_already_running():
             updated_at_str = response.data[0].get('updated_at')
             status = response.data[0].get('status', 'idle')
             
+            # Check if task is completed
+            if status == 'complete':
+                logger.info("Task is completed. No execution needed.")
+                return True
+            
+            # Check if task is manually stopped
+            if status == 'stop':
+                logger.info("Task is manually stopped. Skipping execution.")
+                return True
+            
+            # Check if another instance is running
             if updated_at_str and status == 'running':
                 # Parse the timestamp
                 from datetime import datetime, timezone
@@ -246,7 +257,7 @@ def update_lock_timestamp():
 
 def clear_lock():
     """
-    Clear the lock to indicate the process has finished.
+    Clear the lock to indicate the process has paused.
     """
     supabase = create_supabase_client()
     try:
@@ -255,9 +266,25 @@ def clear_lock():
             'updated_at': 'now()'
         }).eq('id', 1).execute()
         
-        logger.info("Lock cleared successfully.")
+        logger.info("Lock cleared successfully, status set to idle.")
     except Exception as e:
         logger.error(f"Error clearing lock: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
+def mark_complete():
+    """
+    Mark the task as completed.
+    """
+    supabase = create_supabase_client()
+    try:
+        response = supabase.table('scraping_progress').update({
+            'status': 'complete',
+            'updated_at': 'now()'
+        }).eq('id', 1).execute()
+        
+        logger.info("Task marked as complete.")
+    except Exception as e:
+        logger.error(f"Error marking task as complete: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
 
 def trigger_next_workflow():
@@ -465,13 +492,16 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
                 
         logger.info(f"Finished processing. Total properties processed: {processed_count}")
         
-        # Clear the lock
-        clear_lock()
-        
-        # If we should continue (due to time limit), trigger the next workflow
+        # Set appropriate status based on completion
         if should_continue:
+            # Due to time limit, need to continue - set to idle for next run
+            clear_lock()
             logger.info("Triggering next workflow run to continue processing...")
             trigger_next_workflow()
+        else:
+            # Task completely finished - mark as complete
+            mark_complete()
+            logger.info("All image updates completed. Task status set to complete.")
             
     except Exception as e:
         logger.error(f"Error fetching properties from Supabase: {str(e)}")
