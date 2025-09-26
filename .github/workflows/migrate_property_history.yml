@@ -1,0 +1,58 @@
+name: Migrate Property History
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */30 * * *"  # 每30分钟运行一次
+
+concurrency:
+  group: migrate-property-history
+  cancel-in-progress: false
+
+jobs:
+  migrate-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6小时超时
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GITHUB_ACTIONS: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run property history migration
+        run: |
+          echo "Starting property history migration..."
+          python database/migrate_property_history.py
+          echo "Migration completed or stopped due to time limit"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: migration-logs
+          path: property_history_migration.log
+          retention-days: 7

@@ -216,7 +216,6 @@ def is_already_running():
         logger.error(f"Error details: {traceback.format_exc()}")
         return False
 
-# Function to update the lock timestamp
 def update_lock_timestamp():
     """
     Update the lock timestamp to indicate the process is running.
