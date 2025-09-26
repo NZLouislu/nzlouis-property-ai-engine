@@ -200,25 +200,26 @@ def is_already_running():
                 logger.info("Task is completed. No execution needed.")
                 return True
             
-            if status == 'stop':
-                logger.info("Task is manually stopped. Skipping execution.")
-                return True
+            if status == 'running':
+                # Check if another instance is running
+                if updated_at_str:
+                    # Parse the timestamp
+                    from datetime import datetime, timezone
+                    updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
+                    # Check if the lock is still valid (less than 30 minutes old for active running status)
+                    current_time = datetime.now(timezone.utc)
+                    time_diff = current_time - updated_at
+                    if time_diff.total_seconds() < 30 * 60:  # 30 minutes in seconds
+                        logger.info("Another instance is actively running. Skipping execution.")
+                        return True
+                    else:
+                        # Lock is stale, clear it
+                        logger.info("Found stale lock, clearing it.")
+                        clear_lock()
             
-            # Check if another instance is running
-            if updated_at_str and status == 'running':
-                # Parse the timestamp
-                from datetime import datetime, timezone
-                updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
-                # Check if the lock is still valid (less than 30 minutes old for active running status)
-                current_time = datetime.now(timezone.utc)
-                time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 30 * 60:  # 30 minutes in seconds
-                    logger.info("Another instance is actively running. Skipping execution.")
-                    return True
-                else:
-                    # Lock is stale, clear it
-                    logger.info("Found stale lock, clearing it.")
-                    clear_lock()
+            # For 'stop' status, we allow execution to continue the stopped task
+            # For 'idle' status, we allow execution to start a new task
+            # Only return True for 'running' status with recent timestamp
         return False
     except Exception as e:
         logger.error(f"Error checking if already running: {e}")
@@ -492,9 +493,9 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
         
         # Set appropriate status based on completion
         if should_continue:
-            # Due to time limit, need to continue - set status to stop to indicate timeout
+            # For normal timeout, set status to 'idle' instead of 'stop'
             supabase.table('scraping_progress').update({
-                'status': 'stop',
+                'status': 'idle',
                 'updated_at': 'now()'
             }).eq('id', 1).execute()
             logger.info("Triggering next workflow run to continue processing...")

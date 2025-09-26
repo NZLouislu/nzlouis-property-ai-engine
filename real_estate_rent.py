@@ -125,9 +125,9 @@ def is_already_running():
                 return True
             
             if status == 'stop':
-                logger.info("Rent scraper task is manually stopped. Skipping execution.")
-                return True
-            
+                logger.info("Rent scraper task was stopped. Resuming execution.")
+                # Allow execution to continue if status is 'stop'
+                
             # Check if another instance is running
             if updated_at_str and status == 'running':
                 # Parse the timestamp
@@ -418,16 +418,16 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                     logger.info(f"Maximum runtime of {max_runtime_hours} hours reached. Stopping...")
                     # Save progress before exiting
                     update_last_processed_page(page_num - 1)
-                    # Update status to 'stop' to indicate timeout
+                    # Update status to 'idle' instead of 'stop' for normal timeout
                     supabase = create_supabase_client()
                     try:
                         supabase.table('scraping_progress').update({
-                            'status': 'stop',
+                            'status': 'idle',
                             'updated_at': 'now()'
                         }).eq('id', 4).execute()
-                        logger.info("Rent scraper status updated to 'stop' due to timeout.")
+                        logger.info("Rent scraper status updated to 'idle' due to timeout.")
                     except Exception as e:
-                        logger.error(f"Error updating status to 'stop': {e}")
+                        logger.error(f"Error updating status to 'idle': {e}")
                     break
                 
                 # Update lock timestamp periodically to indicate we're still running

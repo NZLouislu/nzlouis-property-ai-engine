@@ -320,7 +320,7 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
             if elapsed_time > max_runtime_seconds:
                 logger.info(f"Reached max runtime of {max_runtime_hours} hours, stopping processing...")
                 if last_id_in_batch:
-                    update_migration_progress(last_id_in_batch, 'stop')
+                    update_migration_progress(last_id_in_batch, 'idle')
                 should_continue = True
                 break
             
@@ -340,7 +340,7 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
                 if elapsed_time > max_runtime_seconds:
                     logger.info(f"Reached max runtime, stopping processing...")
                     if last_id_in_batch:
-                        update_migration_progress(last_id_in_batch, 'stop')
+                        update_migration_progress(last_id_in_batch, 'idle')
                     should_continue = True
                     break
                 
@@ -399,8 +399,12 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
         print("="*50)
         
         if should_continue:
-            clear_lock()
-            logger.info("Time limit reached, waiting for next run to continue processing...")
+            # For normal timeout, set status to 'idle' instead of 'stop'
+            supabase.table('scraping_progress').update({
+                'status': 'idle',
+                'updated_at': 'now()'
+            }).eq('id', 6).execute()
+            logger.info("Time limit reached, status set to 'idle', waiting for next run to continue processing...")
         else:
             mark_complete()
             logger.info("All data migration completed, task status set to complete")
