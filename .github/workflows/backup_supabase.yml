@@ -18,6 +18,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
     steps:
       - name: Checkout code
@@ -41,7 +42,27 @@ jobs:
       - name: Create backup directory
         run: mkdir -p database/backup
 
+      - name: Setup DATABASE_URL if not provided
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            # Extract project reference from SUPABASE_URL
+            PROJECT_REF=$(echo $SUPABASE_URL | sed 's/https:\/\/\([^.]*\).supabase.co/\1/')
+            
+            # Construct DATABASE_URL for direct database connection
+            # Format: postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
+            if [ -n "$SUPABASE_DB_PASSWORD" ]; then
+              export DATABASE_URL="postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres"
+              echo "DATABASE_URL constructed from Supabase project info"
+            else
+              echo "Warning: Neither DATABASE_URL nor SUPABASE_DB_PASSWORD is set"
+              echo "pg_dump backup will be skipped"
+            fi
+          else
+            echo "DATABASE_URL is already set"
+          fi
+
       - name: Check if backup is already running
+=======
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}

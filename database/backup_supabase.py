@@ -226,6 +226,127 @@ def create_metadata_file(backup_path: str, json_backup_path: str = None):
         logger.error(f"Error creating metadata file: {e}")
         return None
 
+def backup_table_data(table_name: str) -> Optional[str]:
+    """
+    Backup a single table's data to JSON format using Supabase API
+    
+    Args:
+        table_name: Name of the table to backup
+        
+    Returns:
+        str: Path to the JSON backup file if successful, None otherwise
+    """
+    try:
+        supabase = create_supabase_client()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        logger.info(f"Backing up table: {table_name}")
+        
+        # Get all data from the table
+        response = supabase.table(table_name).select("*").execute()
+        
+        if response.data:
+            # Save to JSON file
+            json_filename = f"{table_name}_backup_{timestamp}.json"
+            json_path = os.path.join(BACKUP_DIR, json_filename)
+            
+            backup_data = {
+                "table_name": table_name,
+                "backup_timestamp": datetime.utcnow().isoformat(),
+                "record_count": len(response.data),
+                "data": response.data
+            }
+            
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(backup_data, f, indent=2, default=str, ensure_ascii=False)
+            
+            file_size = os.path.getsize(json_path)
+            file_size_mb = file_size / (1024 * 1024)
+            
+            logger.info(f"✓ Table {table_name}: {len(response.data)} records, {file_size_mb:.2f} MB")
+            return json_path
+        else:
+            logger.warning(f"Table {table_name} is empty or could not be accessed")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error backing up table {table_name}: {e}")
+        return None
+
+def create_json_backup() -> Optional[str]:
+    """
+    Create JSON backup of all known tables using Supabase API
+    
+    Returns:
+        str: Path to the combined JSON backup file if successful, None otherwise
+    """
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        combined_filename = f"supabase_data_backup_{timestamp}.json"
+        combined_path = os.path.join(BACKUP_DIR, combined_filename)
+        
+        logger.info("Creating JSON data backup using Supabase API...")
+        
+        supabase = create_supabase_client()
+        all_backup_data = {
+            "backup_timestamp": datetime.utcnow().isoformat(),
+            "backup_type": "json_api_export",
+            "tables": {}
+        }
+        
+        total_records = 0
+        successful_tables = 0
+        
+        for table_name in KNOWN_TABLES:
+            try:
+                logger.info(f"Backing up table: {table_name}")
+                response = supabase.table(table_name).select("*").execute()
+                
+                if response.data:
+                    all_backup_data["tables"][table_name] = {
+                        "record_count": len(response.data),
+                        "data": response.data
+                    }
+                    total_records += len(response.data)
+                    successful_tables += 1
+                    logger.info(f"✓ {table_name}: {len(response.data)} records")
+                else:
+                    logger.warning(f"Table {table_name} is empty or inaccessible")
+                    all_backup_data["tables"][table_name] = {
+                        "record_count": 0,
+                        "data": [],
+                        "note": "Empty or inaccessible"
+                    }
+                    
+            except Exception as e:
+                logger.error(f"Error backing up table {table_name}: {e}")
+                all_backup_data["tables"][table_name] = {
+                    "error": str(e),
+                    "record_count": 0,
+                    "data": []
+                }
+        
+        # Add summary
+        all_backup_data["summary"] = {
+            "total_tables": len(KNOWN_TABLES),
+            "successful_tables": successful_tables,
+            "total_records": total_records
+        }
+        
+        # Save combined backup
+        with open(combined_path, 'w', encoding='utf-8') as f:
+            json.dump(all_backup_data, f, indent=2, default=str, ensure_ascii=False)
+        
+        file_size = os.path.getsize(combined_path)
+        file_size_mb = file_size / (1024 * 1024)
+        
+        logger.info(f"✓ JSON backup completed: {total_records} total records, {file_size_mb:.2f} MB")
+        return combined_path
+        
+    except Exception as e:
+        logger.error(f"Error creating JSON backup: {e}")
+        return None
+
 def backup_database_complete() -> Dict[str, str]:
     """
     Main function to create complete Supabase database backup
@@ -245,17 +366,30 @@ def backup_database_complete() -> Dict[str, str]:
     backup_files = {}
     
     try:
-        # 1. Create complete database backup using pg_dump
-        logger.info("Creating complete database backup with pg_dump...")
-        pg_dump_path = create_pg_dump_backup()
-        
-        if pg_dump_path:
-            backup_files['pg_dump'] = pg_dump_path
-            logger.info("✓ Complete database backup created successfully")
+        # 1. Create complete database backup using pg_dump (if DATABASE_URL is available)
+        if DATABASE_URL:
+            logger.info("Creating complete database backup with pg_dump...")
+            pg_dump_path = create_pg_dump_backup()
+            
+            if pg_dump_path:
+                backup_files['pg_dump'] = pg_dump_path
+                logger.info("✓ Complete database backup created successfully")
+            else:
+                logger.warning("✗ pg_dump backup failed")
         else:
-            logger.warning("✗ pg_dump backup failed")
+            logger.info("DATABASE_URL not available, skipping pg_dump backup")
         
-        # 2. Create metadata file
+        # 2. Create JSON data backup using Supabase API (always available)
+        logger.info("Creating JSON data backup using Supabase API...")
+        json_backup_path = create_json_backup()
+        
+        if json_backup_path:
+            backup_files['json'] = json_backup_path
+            logger.info("✓ JSON data backup created successfully")
+        else:
+            logger.warning("✗ JSON data backup failed")
+        
+        # 3. Create metadata file
         metadata_path = create_metadata_file(
             backup_files.get('pg_dump'), 
             backup_files.get('json')
