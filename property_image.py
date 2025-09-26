@@ -196,12 +196,10 @@ def is_already_running():
             updated_at_str = response.data[0].get('updated_at')
             status = response.data[0].get('status', 'idle')
             
-            # Check if task is completed
             if status == 'complete':
                 logger.info("Task is completed. No execution needed.")
                 return True
             
-            # Check if task is manually stopped
             if status == 'stop':
                 logger.info("Task is manually stopped. Skipping execution.")
                 return True

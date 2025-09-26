@@ -120,12 +120,10 @@ def is_already_running():
             updated_at_str = response.data[0].get('updated_at')
             status = response.data[0].get('status', 'idle')
             
-            # Check if task is completed
             if status == 'complete':
                 logger.info("Rent scraper task is completed. No execution needed.")
                 return True
             
-            # Check if task is manually stopped
             if status == 'stop':
                 logger.info("Rent scraper task is manually stopped. Skipping execution.")
                 return True
@@ -134,30 +132,18 @@ def is_already_running():
             if updated_at_str and status == 'running':
                 # Parse the timestamp
                 from datetime import datetime, timezone
-                # Handle different timestamp formats
-                timestamp_str = updated_at_str.replace('Z', '+00:00')
-                # Remove microseconds if they have more than 6 digits
-                if '.' in timestamp_str and '+' in timestamp_str:
-                    date_part, tz_part = timestamp_str.split('+')
-                    if '.' in date_part:
-                        main_part, micro_part = date_part.split('.')
-                        # Truncate microseconds to 6 digits
-                        micro_part = micro_part[:6]
-                        timestamp_str = f"{main_part}.{micro_part}+{tz_part}"
-                updated_at = datetime.fromisoformat(timestamp_str)
-                # Check if the lock is still valid (less than 30 minutes old)
+                updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
+                # Check if the lock is still valid (less than 30 minutes old for active running status)
                 current_time = datetime.now(timezone.utc)
                 time_diff = current_time - updated_at
-                if time_diff.total_seconds() < 1800:  # 30 minutes in seconds
+                if time_diff.total_seconds() < 30 * 60:  # 30 minutes in seconds
                     logger.info("Another rent scraper instance is already running. Exiting.")
                     return True
                 else:
-                    logger.info("Found stale rent scraper lock, clearing it.")
                     # Lock is stale, clear it
-                    supabase.table('scraping_progress').update({
-                        'status': 'idle',
-                        'updated_at': 'now()'
-                    }).eq('id', 4).execute()
+                    logger.info("Found stale lock, clearing it")
+                    clear_lock()
+                
         return False
     except Exception as e:
         logger.error(f"Error checking if rent scraper is already running: {e}")

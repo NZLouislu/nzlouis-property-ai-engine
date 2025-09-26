@@ -120,12 +120,10 @@ def is_already_running():
             updated_at_str = response.data[0].get('updated_at')
             status = response.data[0].get('status', 'idle')
             
-            # Check if task is completed
             if status == 'complete':
                 logger.info("Wellington scraper task is completed. No execution needed.")
                 return True
             
-            # Check if task is manually stopped
             if status == 'stop':
                 logger.info("Wellington scraper task is manually stopped. Skipping execution.")
                 return True
@@ -139,12 +137,13 @@ def is_already_running():
                 current_time = datetime.now(timezone.utc)
                 time_diff = current_time - updated_at
                 if time_diff.total_seconds() < 30 * 60:  # 30 minutes in seconds
-                    logger.info("Another Wellington scraper instance is actively running. Exiting.")
+                    logger.info("Another Wellington scraper instance is already running. Exiting.")
                     return True
                 else:
                     # Lock is stale, clear it
-                    logger.info("Found stale lock, clearing it.")
+                    logger.info("Found stale lock, clearing it")
                     clear_lock()
+                
         return False
     except Exception as e:
         logger.error(f"Error checking if Wellington scraper is already running: {e}")
@@ -152,7 +151,6 @@ def is_already_running():
         # In case of error, assume not running to avoid blocking legitimate runs
         return False
 
-# Function to update the lock timestamp
 def update_lock_timestamp():
     """
     Update the lock timestamp to indicate the process is running.
@@ -433,6 +431,16 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                     logger.info(f"Maximum runtime of {max_runtime_hours} hours reached. Stopping...")
                     # Save progress before exiting
                     update_last_processed_page(page_num - 1)
+                    # Update status to 'stop' to indicate timeout
+                    supabase = create_supabase_client()
+                    try:
+                        supabase.table('scraping_progress').update({
+                            'status': 'stop',
+                            'updated_at': 'now()'
+                        }).eq('id', 3).execute()
+                        logger.info("Wellington scraper status updated to 'stop' due to timeout.")
+                    except Exception as e:
+                        logger.error(f"Error updating status to 'stop': {e}")
                     break
                 
                 # Update lock timestamp periodically to indicate we're still running
@@ -546,6 +554,8 @@ def main():
     except Exception as e:
         logger.error(f"Error in main function: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
+        # Clear the lock when there's an error
+        clear_lock()
         raise
 
 if __name__ == "__main__":
@@ -554,4 +564,6 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Unexpected error in script execution: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
+        # Clear the lock on error in main execution
+        clear_lock()
         exit(1)

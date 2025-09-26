@@ -1,9 +1,9 @@
-name: Scrape Wellington Properties - STOPPED
+name: Scrape Wellington Properties
 
 on:
   workflow_dispatch:
-  # schedule:
-  #   - cron: "*/30 * * * *" # STOPPED - Set to stop status by user request
+  schedule:
+    - cron: "*/30 * * * *" # Check status every 30 minutes
 
 concurrency:
   group: scrape-property-wellington
@@ -12,7 +12,7 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 330
 
     env:
       UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
@@ -30,16 +30,25 @@ jobs:
       - name: Force reset expired status
         run: python database/force_reset_expired_status.py
 
-      - name: Set up Python 3.12
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.12
+          python-version: '3.9'
 
       - name: Install dependencies
         run: |
-          # 移除 requirements.txt 中对 greenlet>=3.1.0 的显式声明
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
           playwright install
 
       - name: Run scraper
         run: python property_wellington.py
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wellington-property-logs-${{ github.run_number }}
+          path: |
+            *.log
+          retention-days: 7
