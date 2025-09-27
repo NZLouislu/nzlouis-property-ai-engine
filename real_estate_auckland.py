@@ -552,6 +552,14 @@ def main():
     Main function to start the scraping process.
     """
     try:
+        logger.info("Auckland Real Estate Scraper")
+        logger.info("===========================")
+        
+        # 1. 手动运行后，检查数据库的状态，如果是idle，就运行，修改状态为running
+        if is_already_running():
+            logger.info("Auckland scraper cannot start - exiting")
+            return
+        
         # Read base URL from environment variables and append /auckland
         base_url = os.getenv("REALESTATE_URL")
         if not base_url:
@@ -564,7 +572,7 @@ def main():
     except Exception as e:
         logger.error(f"Error in main function: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
-        # Clear the lock when there's an error
+        # 4. 意外退出或网络原因，错误等，设置对应id的状态为idle，退出
         clear_lock()
         raise
 

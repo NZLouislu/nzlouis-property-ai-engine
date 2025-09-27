@@ -470,11 +470,18 @@ def main():
     Main function to start the scraping process.
     """
     try:
-        # GitHub Actions already handles status management, so we don't need to check here
+        logger.info("PropertyValue Wellington Scraper")
+        logger.info("===============================")
+        
+        # 1. 手动运行后，检查数据库的状态，如果是idle，就运行，修改状态为running
+        if is_already_running():
+            logger.info("PropertyValue Wellington scraper cannot start - exiting")
+            return
+        
         # Create progress table if it doesn't exist
         create_scraping_progress_table()
         
-        # Just update lock timestamp to indicate we're running
+        # Update lock timestamp to indicate we're running
         update_lock_timestamp()
         
         # Get base URL from environment variables and construct Wellington URL

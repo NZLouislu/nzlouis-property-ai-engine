@@ -1,9 +1,9 @@
-name: Migrate Property History Data
+name: Migrate Property History Data completed
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
-  workflow_dispatch:
+  #   - cron: '0 */6 * * *'
+  # workflow_dispatch:
 
 concurrency:
   group: migrate-property-history
