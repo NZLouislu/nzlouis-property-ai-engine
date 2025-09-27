@@ -324,12 +324,8 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
         batch_size (int): Number of properties to process in each batch
         max_runtime_hours (float): Maximum runtime in hours before stopping (default 5.5 hours to stay within 6-hour limit)
     """
-    # Check if another instance is already running
-    if is_already_running():
-        logger.info("Another instance is already running. Exiting.")
-        return
-    
-    # Update lock timestamp to indicate we're running
+    # GitHub Actions already handles status management, so we don't need to check here
+    # Just update lock timestamp to indicate we're running
     update_lock_timestamp()
     
     should_continue = True

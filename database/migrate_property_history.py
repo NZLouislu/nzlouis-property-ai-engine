@@ -281,10 +281,8 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
     """
     Main migration function with batch processing and time limit support
     """
-    if is_already_running():
-        logger.info("Another instance is running, exiting")
-        return
-    
+    # GitHub Actions already handles status management, so we don't need to check here
+    # Just update lock timestamp to indicate we're running
     update_lock_timestamp()
     
     should_continue = False

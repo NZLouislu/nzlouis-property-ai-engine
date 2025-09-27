@@ -364,12 +364,8 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
         max_pages (int): Maximum number of pages to scrape
         max_runtime_hours (float): Maximum runtime in hours before stopping (default 5.5 hours)
     """
-    # Check if another instance is already running
-    if is_already_running():
-        logger.info("Another Wellington scraper instance is already running. Exiting.")
-        return
-    
-    # Update lock timestamp to indicate we're running
+    # GitHub Actions already handles status management, so we don't need to check here
+    # Just update lock timestamp to indicate we're running
     update_lock_timestamp()
     
     all_addresses = []

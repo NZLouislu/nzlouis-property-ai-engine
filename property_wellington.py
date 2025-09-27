@@ -462,15 +462,11 @@ def main():
     Main function to start the scraping process.
     """
     try:
-        # Check if another instance is already running
-        if is_already_running():
-            logger.info("Another PropertyValue Wellington scraper instance is already running. Exiting.")
-            return
-        
+        # GitHub Actions already handles status management, so we don't need to check here
         # Create progress table if it doesn't exist
         create_scraping_progress_table()
         
-        # Update lock timestamp to indicate we're starting
+        # Just update lock timestamp to indicate we're running
         update_lock_timestamp()
         
         # Get base URL from environment variables and construct Wellington URL
