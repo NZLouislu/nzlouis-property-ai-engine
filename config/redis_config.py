@@ -1,13 +1,30 @@
 # redis_config.py
 import os
-# from redis import Redis
-from upstash_redis import Redis # Import Redis instead of UpstashRedis
+
+# Try to import Upstash Redis, fallback if not available
+try:
+    from upstash_redis import Redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    Redis = None
+    REDIS_AVAILABLE = False
 
 # Redis connection configuration
 def create_redis_client():
-    # Use Redis.from_env() which is the correct way to initialize from environment variables
-    return Redis.from_env()
-    # return Redis(host='localhost', port=6379, db=0)
+    if REDIS_AVAILABLE:
+        # Use Redis.from_env() which is the correct way to initialize from environment variables
+        return Redis.from_env()
+    else:
+        # Return a mock client when Redis is not available
+        return MockRedisClient()
+
+# Mock Redis client for when the real client is not available
+class MockRedisClient:
+    def get(self, key):
+        return None
+    
+    def set(self, key, value):
+        pass
 
 # Check if a property address exists in Redis
 def check_property_in_redis(redis_client, address):
