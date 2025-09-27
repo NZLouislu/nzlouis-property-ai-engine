@@ -575,22 +575,12 @@ def main():
         logger.info("Rent Real Estate Scraper")
         logger.info("========================")
         
-        # Check if another instance is already running
-        if is_already_running():
-            logger.info("Rent scraper cannot start - exiting")
-            return
+
         
-        # Read base URL from environment variables and append /rental
-        base_url = os.getenv("REALESTATE_URL") or os.getenv("REALESTATE_RENT_URL")
+        base_url = os.getenv("REALESTATE_RENT_URL") or os.getenv("REALESTATE_URL")
         if not base_url:
-            raise ValueError("REALESTATE_URL or REALESTATE_RENT_URL environment variable must be set")
-        
-        # If using REALESTATE_URL, we need to append /rental
-        if "REALESTATE_URL" in os.environ:
-            main_url = f"{base_url}/rental"
-        else:
-            # If using REALESTATE_RENT_URL, it should already include /rental
-            main_url = base_url
+            raise ValueError("REALESTATE_RENT_URL or REALESTATE_URL environment variable must be set")
+        main_url = base_url
         
         max_pages = 412
         scrape_properties(main_url, max_pages)

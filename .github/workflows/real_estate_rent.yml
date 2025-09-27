@@ -55,7 +55,7 @@ jobs:
           result = supabase.table('scraping_progress').select('*').eq('id', 4).execute()
           if not result.data:
               print('No scraping progress record found')
-              exit(1)
+              exit(0)
           
           record = result.data[0]
           status = record.get('status')
@@ -71,7 +71,7 @@ jobs:
               now = datetime.now(timezone.utc)
               time_diff = now - last_update
               
-              if time_diff > timedelta(hours=6):
+              if time_diff > timedelta(minutes=30):
                   print(f'Status has been running for {time_diff}, resetting to idle')
                   supabase.table('scraping_progress').update({
                       'status': 'idle',
