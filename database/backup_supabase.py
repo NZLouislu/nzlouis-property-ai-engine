@@ -71,6 +71,43 @@ def ensure_backup_directory():
         os.makedirs(BACKUP_DIR)
         logger.info(f"Created backup directory: {BACKUP_DIR}")
 
+def check_backup_status() -> bool:
+    """
+    Check backup status and determine if backup should proceed
+    For backup tasks, we allow execution even if status is 'complete' 
+    since backups are periodic tasks that should run on schedule
+    
+    Returns:
+        bool: True if backup should NOT proceed (only if another backup is running)
+    """
+    try:
+        supabase = create_supabase_client()
+        response = supabase.table('scraping_progress').select('status, updated_at').eq('id', 7).execute()
+        
+        if response.data:
+            status = response.data[0]['status']
+            logger.info(f"Current backup status: {status}")
+            
+            # Only prevent execution if another backup is currently running
+            if status == 'running':
+                logger.info("Another backup is currently running, exiting")
+                return True
+            
+            # For 'complete', 'idle', or 'stop' status, allow backup to proceed
+            # This is different from other tasks because backups are periodic
+            if status in ['complete', 'idle', 'stop']:
+                logger.info(f"Previous backup status was '{status}', starting new backup")
+                return False
+        else:
+            logger.info("No backup record found, will create new one")
+        
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error checking backup status: {e}")
+        # In case of error, allow backup to proceed
+        return False
+
 def update_backup_status(status: str, message: str = ""):
     """Update backup status in scraping_progress table"""
     try:
@@ -484,6 +521,11 @@ if __name__ == "__main__":
         logger.info("=" * 60)
         logger.info("STARTING COMPLETE SUPABASE DATABASE BACKUP")
         logger.info("=" * 60)
+        
+        # Check if backup should proceed
+        if check_backup_status():
+            logger.info("Backup cannot proceed at this time")
+            exit(0)
         
         # Check required environment variables
         if not SUPABASE_URL or not SUPABASE_KEY:
