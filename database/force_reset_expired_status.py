@@ -8,15 +8,20 @@
 import os
 import sys
 from datetime import datetime, timezone, timedelta
-from dotenv import load_dotenv
 
 # 添加项目根目录到 Python 路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.supabase_config import create_supabase_client
 
-# 加载环境变量
-load_dotenv()
+# 尝试加载环境变量，如果 dotenv 不可用则跳过
+try:
+    from dotenv import load_dotenv
+    # 加载环境变量
+    load_dotenv()
+except ImportError:
+    # 在 GitHub Actions 环境中，环境变量由工作流直接提供
+    pass
 
 # 任务ID映射
 TASK_MAPPING = {

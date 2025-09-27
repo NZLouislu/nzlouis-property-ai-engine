@@ -32,28 +32,28 @@ jobs:
         id: check_status
         run: |
           python - << 'EOF'
-import os
-from supabase import create_client
-url, key = os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY')
-sup = create_client(url, key)
-data = sup.table('scraping_progress').select('status').eq('id',2).execute().data
-status = data[0]['status'] if data else 'idle'
-print(f"::set-output name=status::{status}")
-EOF
+          import os
+          from supabase import create_client
+          url, key = os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY')
+          sup = create_client(url, key)
+          data = sup.table('scraping_progress').select('status').eq('id',2).execute().data
+          status = data[0]['status'] if data else 'idle'
+          print(f"::set-output name=status::{status}")
+          EOF
 
       - name: Set status to running
         if: steps.check_status.outputs.status == 'idle'
         run: |
           python - << 'EOF'
-import os
-from supabase import create_client
-url, key = os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY')
-sup = create_client(url, key)
-sup.table('scraping_progress').update({
-  'status': 'running',
-  'updated_at': 'now()'
-}).eq('id', 2).execute()
-EOF
+          import os
+          from supabase import create_client
+          url, key = os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY')
+          sup = create_client(url, key)
+          sup.table('scraping_progress').update({
+            'status': 'running',
+            'updated_at': 'now()'
+          }).eq('id', 2).execute()
+          EOF
 
       - name: Run scraper
         if: steps.check_status.outputs.status == 'idle'
@@ -69,18 +69,18 @@ EOF
         if: always() && steps.check_status.outputs.status == 'idle'
         run: |
           python - << 'EOF'
-import os
-from supabase import create_client
-url, key = os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY')
-sup = create_client(url, key)
-try:
-    sup.table('scraping_progress').update({
-        'status': 'idle',
-        'updated_at': 'now()'
-    }).eq('id', 2).execute()
-except Exception as e:
-    print(f"Error resetting status: {str(e)}")
-EOF
+          import os
+          from supabase import create_client
+          url, key = os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY')
+          sup = create_client(url, key)
+          try:
+              sup.table('scraping_progress').update({
+                  'status': 'idle',
+                  'updated_at': 'now()'
+              }).eq('id', 2).execute()
+          except Exception as e:
+              print(f"Error resetting status: {str(e)}")
+          EOF
 
       - name: Collect debug info
         if: always()
