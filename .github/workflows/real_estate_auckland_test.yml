@@ -1,0 +1,102 @@
+name: Test Scrape Auckland Interval
+
+on:
+  schedule:
+    - cron: "*/2 * * * *"
+
+jobs:
+  scrape-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          playwright install
+
+      - name: Check DB status
+        id: check_status
+        run: |
+          python - << 'EOF'
+import os
+from supabase import create_client
+url, key = os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY')
+sup = create_client(url, key)
+data = sup.table('scraping_progress').select('status').eq('id',2).execute().data
+status = data[0]['status'] if data else 'idle'
+print(f"::set-output name=status::{status}")
+EOF
+
+      - name: Set status to running
+        if: steps.check_status.outputs.status == 'idle'
+        run: |
+          python - << 'EOF'
+import os
+from supabase import create_client
+url, key = os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY')
+sup = create_client(url, key)
+sup.table('scraping_progress').update({
+  'status': 'running',
+  'updated_at': 'now()'
+}).eq('id', 2).execute()
+EOF
+
+      - name: Run scraper
+        if: steps.check_status.outputs.status == 'idle'
+        run: |
+          set -e
+          timeout 600 python real_estate_auckland.py || exit_code=$?
+          if [ -n "$exit_code" ]; then
+            echo "::error::Scraper failed with exit code $exit_code"
+            exit $exit_code
+          fi
+
+      - name: Reset status to idle
+        if: always() && steps.check_status.outputs.status == 'idle'
+        run: |
+          python - << 'EOF'
+import os
+from supabase import create_client
+url, key = os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY')
+sup = create_client(url, key)
+try:
+    sup.table('scraping_progress').update({
+        'status': 'idle',
+        'updated_at': 'now()'
+    }).eq('id', 2).execute()
+except Exception as e:
+    print(f"Error resetting status: {str(e)}")
+EOF
+
+      - name: Collect debug info
+        if: always()
+        run: |
+          echo "### Debug Info ###"
+          echo "Run Number: ${{ github.run_number }}"
+          echo "Run Attempt: ${{ github.run_attempt }}"
+          ls -la
+          if [ -f "real_estate_auckland.log" ]; then
+            tail -n 50 real_estate_auckland.log
+          fi
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auckland-test-logs-${{ github.run_number }}
+          path: real_estate_auckland.log
+          retention-days: 1
