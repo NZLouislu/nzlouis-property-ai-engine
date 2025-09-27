@@ -193,7 +193,6 @@ def is_already_running():
         # Get the lock timestamp for image updater (id=1)
         response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 1).execute()
         if response.data and len(response.data) > 0:
-            updated_at_str = response.data[0].get('updated_at')
             status = response.data[0].get('status', 'idle')
             
             if status == 'complete':
@@ -205,22 +204,14 @@ def is_already_running():
                 return True
             
             if status == 'running':
-                # Check if another instance is running
-                if updated_at_str:
-                    # Parse the timestamp
-                    from datetime import datetime, timezone
-                    updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
-                    # Check if the lock is still valid (less than 30 minutes old for active running status)
-                    current_time = datetime.now(timezone.utc)
-                    time_diff = current_time - updated_at
-                # Check if another instance is running
-                if status == 'running':
-                    logger.info("Another instance is running. Skipping execution.")
-                    return True
+                logger.info("Another instance is running. Skipping execution.")
+                return True
             
-            # For 'stop' status, we allow execution to continue the stopped task
             # For 'idle' status, we allow execution to start a new task
-            # Only return True for 'running' status with recent timestamp
+            if status == 'idle':
+                logger.info("Status is idle. Ready to start execution.")
+                return False
+            
         return False
     except Exception as e:
         logger.error(f"Error checking if already running: {e}")

@@ -130,6 +130,11 @@ def is_already_running():
             if status == 'running':
                 logger.info("Another rent scraper instance is running. Exiting.")
                 return True
+            
+            # For 'idle' status, we allow execution to start a new task
+            if status == 'idle':
+                logger.info("Status is idle. Ready to start execution.")
+                return False
                 
         return False
     except Exception as e:

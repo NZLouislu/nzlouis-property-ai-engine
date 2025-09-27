@@ -117,7 +117,6 @@ def is_already_running():
         # Get the lock timestamp and status for Auckland scraper (id=2)
         response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 2).execute()
         if response.data and len(response.data) > 0:
-            updated_at_str = response.data[0].get('updated_at')
             status = response.data[0].get('status', 'idle')
             
             if status == 'complete':
@@ -127,12 +126,15 @@ def is_already_running():
             if status == 'stop':
                 logger.info("Auckland scraper task was manually stopped. Exiting.")
                 return True
-                # Allow execution to continue if status is 'stop'
                 
-            # Check if another instance is running
             if status == 'running':
                 logger.info("Another Auckland scraper instance is running. Exiting.")
                 return True
+            
+            # For 'idle' status, we allow execution to start a new task
+            if status == 'idle':
+                logger.info("Status is idle. Ready to start execution.")
+                return False
                 
         return False
     except Exception as e:

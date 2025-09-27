@@ -376,7 +376,6 @@ def is_already_running():
         # Get the lock timestamp and status for PropertyValue Wellington scraper (id=5)
         response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 5).execute()
         if response.data and len(response.data) > 0:
-            updated_at_str = response.data[0].get('updated_at')
             status = response.data[0].get('status', 'idle')
             
             if status == 'complete':
@@ -387,18 +386,14 @@ def is_already_running():
                 logger.info("PropertyValue Wellington scraper task is manually stopped. Skipping execution.")
                 return True
             
-            # Check if another instance is running
-            if updated_at_str and status == 'running':
-                # Parse the timestamp
-                from datetime import datetime, timezone
-                updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
-                # Check if the lock is still valid (less than 30 minutes old for active running status)
-                current_time = datetime.now(timezone.utc)
-                time_diff = current_time - updated_at
-            # Check if another instance is running
             if status == 'running':
                 logger.info("Another PropertyValue Wellington scraper instance is running. Exiting.")
                 return True
+            
+            # For 'idle' status, we allow execution to start a new task
+            if status == 'idle':
+                logger.info("Status is idle. Ready to start execution.")
+                return False
                 
         return False
     except Exception as e:
