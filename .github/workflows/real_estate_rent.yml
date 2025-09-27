@@ -37,7 +37,55 @@ jobs:
           pip install -r requirements.txt
           playwright install
 
-      - name: Check if scraping is already running
+      - name: Force reset expired status and check running status
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python -c "
+          import os
+          from datetime import datetime, timezone, timedelta
+          from supabase import create_client, Client
+          
+          url = os.environ.get('SUPABASE_URL')
+          key = os.environ.get('SUPABASE_KEY')
+          supabase: Client = create_client(url, key)
+          
+          # Check current status
+          result = supabase.table('scraping_progress').select('*').eq('id', 4).execute()
+          if not result.data:
+              print('No scraping progress record found')
+              exit(1)
+          
+          record = result.data[0]
+          status = record.get('status')
+          updated_at = record.get('updated_at')
+          
+          print(f'Current status: {status}')
+          print(f'Last updated: {updated_at}')
+          
+          # If status is running, check if it's expired (more than 6 hours old)
+          if status == 'running' and updated_at:
+              from dateutil import parser
+              last_update = parser.parse(updated_at)
+              now = datetime.now(timezone.utc)
+              time_diff = now - last_update
+              
+              if time_diff > timedelta(hours=6):
+                  print(f'Status has been running for {time_diff}, resetting to idle')
+                  supabase.table('scraping_progress').update({
+                      'status': 'idle',
+                      'updated_at': 'now()'
+                  }).eq('id', 4).execute()
+                  print('Expired status reset to idle')
+              else:
+                  print(f'Rent scraping is currently running (started {time_diff} ago). Exiting...')
+                  exit(1)
+          
+          print('Ready to start scraping')
+          "
+
+      - name: Set status to running
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -50,21 +98,39 @@ jobs:
           key = os.environ.get('SUPABASE_KEY')
           supabase: Client = create_client(url, key)
           
-          result = supabase.table('scraping_progress').select('id').eq('id', 4).eq('status', 'running').execute()
-          if result.data:
-              print('Rent scraping is already running. Exiting...')
-              exit(1)
-          print('No running rent scraping found. Proceeding...')
+          supabase.table('scraping_progress').update({
+              'status': 'running',
+              'updated_at': 'now()'
+          }).eq('id', 4).execute()
+          print('Status set to running')
           "
-
-      - name: Force reset expired status
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: python database/force_reset_expired_status.py real_estate_rent
 
       - name: Run scraper
         run: python real_estate_rent.py
+
+      - name: Reset status to idle on completion or failure
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python -c "
+          import os
+          from supabase import create_client, Client
+          
+          url = os.environ.get('SUPABASE_URL')
+          key = os.environ.get('SUPABASE_KEY')
+          supabase: Client = create_client(url, key)
+          
+          try:
+              supabase.table('scraping_progress').update({
+                  'status': 'idle',
+                  'updated_at': 'now()'
+              }).eq('id', 4).execute()
+              print('Status reset to idle successfully')
+          except Exception as e:
+              print(f'Failed to reset status: {e}')
+          "
 
       - name: Upload logs
         if: always()

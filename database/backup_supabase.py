@@ -166,9 +166,10 @@ def create_pg_dump_backup() -> Optional[str]:
             cmd.extend(['-U', conn_params['user']])
             cmd.extend(['-d', conn_params['dbname']])
             
-            # Add SSL mode if specified
+            # Add SSL mode if specified (skip --set as it's not universally supported)
+            # SSL mode will be handled via environment variable instead
             if 'sslmode' in conn_params:
-                cmd.extend(['--set', f"sslmode={conn_params['sslmode']}"])
+                env['PGSSLMODE'] = conn_params['sslmode']
             
             # Add backup options
             cmd.extend([
