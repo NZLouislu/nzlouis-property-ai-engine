@@ -18,9 +18,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Force reset expired status
-        run: python database/force_reset_expired_status.py
-
       - name: Set up Python 3.12
         uses: actions/setup-python@v4
         with:
@@ -31,6 +28,9 @@ jobs:
           # 移除 requirements.txt 中对 greenlet>=3.1.0 的显式声明
           pip install -r requirements.txt
           playwright install
+
+      - name: Force reset expired status
+        run: python database/force_reset_expired_status.py
 
       - name: Run scraper
         run: python config/config_test.py
