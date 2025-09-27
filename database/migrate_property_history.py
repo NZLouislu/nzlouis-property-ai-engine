@@ -415,10 +415,7 @@ def main():
     logger.info("="*30)
     
     try:
-        if check_migration_status():
-            logger.info("Exiting migration based on status check results")
-            sys.exit(0)
-        
+        # GitHub Actions already handles status management, so we don't need to check here
         # Check environment variables to determine run mode
         is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
         force_placeholder = os.getenv('USE_PLACEHOLDER_MODE') == 'true'
