@@ -1,0 +1,206 @@
+name: Backup Property History Table
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: backup-property-history
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Create backup directory
+      run: mkdir -p database/backup
+
+    - name: Check if backup is already running
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      run: |
+        python -c "
+        import os
+        import sys
+        try:
+            from supabase import create_client, Client
+            url = os.environ.get('SUPABASE_URL')
+            key = os.environ.get('SUPABASE_KEY')
+            if not url or not key:
+                print('SUPABASE_URL or SUPABASE_KEY not set. Proceeding...')
+                sys.exit(0)
+            supabase = create_client(url, key)
+            result = supabase.table('scraping_progress').select('status').eq('id', 8).execute()
+            if result.data and result.data[0]['status'] == 'running':
+                print('Property history backup is already running. Exiting...')
+                sys.exit(1)
+            else:
+                print('No running property history backup found. Proceeding...')
+        except Exception as e:
+            print(f'Could not check backup status: {e}')
+            print('Proceeding with backup...')
+        "
+
+    - name: Run property history backup
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      run: |
+        python database/backup_property_history.py
+
+    - name: Check backup results
+      run: |
+        echo "=== Checking Property History backup results ==="
+        if [ -d "database/backup" ]; then
+          echo "✅ Backup directory exists"
+          echo ""
+          echo "Backup files created:"
+          ls -la database/backup/
+          echo ""
+          
+          # Count backup files for property_history
+          JSON_COUNT=$(find database/backup -name "property_history_backup_*.json" | wc -l)
+          CSV_COUNT=$(find database/backup -name "property_history_backup_*.csv" | wc -l)
+          METADATA_COUNT=$(find database/backup -name "property_history_backup_metadata_*.json" | wc -l)
+          TOTAL_COUNT=$((JSON_COUNT + CSV_COUNT + METADATA_COUNT))
+          
+          echo "Property History backup file summary:"
+          echo "- JSON files: $JSON_COUNT"
+          echo "- CSV files: $CSV_COUNT"
+          echo "- Metadata files: $METADATA_COUNT"
+          echo "- Total files: $TOTAL_COUNT"
+          echo ""
+          
+          if [ $JSON_COUNT -gt 0 ]; then
+            echo "✅ Property History JSON backup successful"
+            
+            if [ $CSV_COUNT -gt 0 ]; then
+              echo "✅ Property History CSV backup successful"
+            fi
+            
+            if [ $METADATA_COUNT -gt 0 ]; then
+              echo "✅ Property History metadata file created"
+            fi
+            
+            echo "🎉 Property History backup completed successfully!"
+            
+            # Show file sizes
+            echo ""
+            echo "File sizes:"
+            find database/backup -name "property_history_backup_*" -exec ls -lh {} \;
+            
+          else
+            echo "❌ No Property History backup files found - backup failed"
+            exit 1
+          fi
+        else
+          echo "❌ Backup directory not found - backup failed"
+          exit 1
+        fi
+
+    - name: Verify backup status in database
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      run: |
+        python -c "
+        import os
+        try:
+            from supabase import create_client, Client
+            url = os.environ.get('SUPABASE_URL')
+            key = os.environ.get('SUPABASE_KEY')
+            if url and key:
+                supabase = create_client(url, key)
+                result = supabase.table('scraping_progress').select('status, last_processed_id, updated_at').eq('id', 8).execute()
+                if result.data:
+                    status = result.data[0]['status']
+                    message = result.data[0].get('last_processed_id', '')
+                    updated_at = result.data[0].get('updated_at', '')
+                    print(f'✅ Property History backup status: {status}')
+                    print(f'✅ Message: {message}')
+                    print(f'✅ Updated at: {updated_at}')
+                    if status == 'complete':
+                        print('🎉 Backup marked as COMPLETE in database!')
+                    else:
+                        print(f'⚠️ Unexpected status: {status}')
+                else:
+                    print('❌ No backup status record found')
+        except Exception as e:
+            print(f'Could not verify backup status: {e}')
+        "
+
+    - name: Upload backup as artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: property-history-backup-${{ github.run_number }}
+        path: database/backup/property_history_backup_*
+        retention-days: 90
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: property-history-backup-logs-${{ github.run_number }}
+        path: |
+          *.log
+        retention-days: 30
+
+    - name: Cleanup backup status on failure
+      if: failure()
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      run: |
+        python -c "
+        import os
+        import sys
+        try:
+            from supabase import create_client, Client
+            url = os.environ.get('SUPABASE_URL')
+            key = os.environ.get('SUPABASE_KEY')
+            if url and key:
+                supabase = create_client(url, key)
+                supabase.table('scraping_progress').update({
+                    'status': 'idle',
+                    'last_processed_id': 'Property History backup failed - status reset'
+                }).eq('id', 8).execute()
+                print('Property History backup status reset to idle due to failure')
+        except Exception as e:
+            print(f'Could not reset backup status: {e}')
+        "
+
+    - name: Summary
+      if: success()
+      run: |
+        echo ""
+        echo "🎉 Property History Backup Summary"
+        echo "=================================="
+        echo "✅ Backup completed successfully"
+        echo "✅ Status marked as 'complete' in database"
+        echo "✅ Backup files uploaded as artifacts"
+        echo ""
+        echo "📁 Backup files are available in the 'Artifacts' section"
+        echo "📋 You can now safely delete property_history table data"
+        echo ""
+        echo "To delete property_history data:"
+        echo "  DELETE FROM property_history;"
+        echo "  OR"
+        echo "  TRUNCATE TABLE property_history;"
+        echo ""
+        echo "To restore later, use the backup files from artifacts"
