@@ -396,7 +396,15 @@ def migrate_property_history(batch_size: int = 100, max_runtime_hours: float = 5
             }).eq('id', 6).execute()
             logger.info("Time limit reached, status set to 'idle', waiting for next run to continue processing...")
         else:
-            mark_complete()
+            # Ensure task is marked as complete
+            try:
+                supabase.table('scraping_progress').update({
+                    'status': 'complete',
+                    'updated_at': 'now()'
+                }).eq('id', 6).execute()
+                logger.info("Task marked as complete")
+            except Exception as e:
+                logger.error(f"Error marking complete status: {e}")
             logger.info("All data migration completed, task status set to complete")
             
     except Exception as e:
