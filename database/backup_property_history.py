@@ -127,10 +127,10 @@ def get_table_statistics():
             'latest_date': 'Unknown'
         }
 
-def backup_property_history_data() -> Dict[str, str]:
+def backup_property_history_data(run_timestamp: str) -> Dict[str, str]:
     try:
         supabase = create_supabase_client()
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = run_timestamp
         
         logger.info("Starting property_history table backup...")
         
@@ -157,7 +157,7 @@ def backup_property_history_data() -> Dict[str, str]:
             logger.warning("No data found in property_history table")
             return {}
         
-        backup_files = {}
+        backup_files = {"backup_id": timestamp}
         
         json_filename = f"property_history_backup_{timestamp}.json"
         json_path = os.path.join(BACKUP_DIR, json_filename)
@@ -251,6 +251,9 @@ def main():
         logger.info("PROPERTY HISTORY TABLE BACKUP")
         logger.info("=" * 60)
         
+        # 本次备份ID，用于文件命名与数据库记录
+        run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
         if check_backup_status():
             logger.info("Property history backup cannot proceed at this time")
             return
@@ -260,17 +263,17 @@ def main():
         
         ensure_backup_directory()
         
-        update_backup_status('running', 'Starting property_history table backup')
+        update_backup_status('running', f'Starting property_history table backup | backup_id:{run_timestamp}')
         
         stats = get_table_statistics()
         logger.info(f"Property History table statistics:")
         logger.info(f"  - Total records: {stats['total_records']}")
         logger.info(f"  - Date range: {stats['earliest_date']} to {stats['latest_date']}")
         
-        backup_files = backup_property_history_data()
+        backup_files = backup_property_history_data(run_timestamp)
         
         if backup_files:
-            update_backup_status('complete', f"Property History backup completed with {len(backup_files)} files")
+            update_backup_status('complete', f"backup_id:{run_timestamp} | files:{len(backup_files)}")
             
             logger.info("=" * 60)
             logger.info("PROPERTY HISTORY BACKUP COMPLETED!")
@@ -296,14 +299,18 @@ def main():
             print(f"✓ You can now safely delete the property_history table data")
             
         else:
-            update_backup_status('idle', 'Property History backup failed - no files created')
+            update_backup_status('idle', f'backup_id:{run_timestamp} | Property History backup failed - no files created')
             logger.error("No backup files were created!")
             print("✗ Property History backup failed - no files were created")
             exit(1)
             
     except Exception as e:
         logger.error(f"Property History backup process failed: {str(e)}")
-        update_backup_status('idle', f'Property History backup failed: {str(e)}')
+        try:
+            # 如果 run_timestamp 可用，记录本次备份ID
+            update_backup_status('idle', f'backup_id:{run_timestamp} | error:{str(e)}')
+        except Exception:
+            update_backup_status('idle', f'error:{str(e)}')
         print(f"✗ Error: {str(e)}")
         print("\nPlease check:")
         print("- SUPABASE_URL and SUPABASE_KEY environment variables are set correctly")
