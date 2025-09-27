@@ -109,36 +109,44 @@ def update_last_processed_page(last_page):
 # Function to check if another instance is already running
 def is_already_running():
     """
-    Check if another instance of the Wellington scraper is already running or task status.
-    Uses the scraping_progress table to store a lock timestamp.
+    Check Wellington scraper status with immediate decision (no waiting):
+    - If 'running': exit immediately 
+    - If 'idle': proceed with execution
+    - If 'complete' or 'stop': exit (task finished or stopped)
     """
     supabase = create_supabase_client()
     try:
-        # Get the lock timestamp and status for Wellington scraper (id=3)
+        # Get the status for Wellington scraper (id=3)
         response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 3).execute()
         if response.data and len(response.data) > 0:
             status = response.data[0].get('status', 'idle')
+            updated_at = response.data[0].get('updated_at', '')
             
-            if status == 'complete':
+            logger.info(f"Wellington scraper status: {status} (updated: {updated_at})")
+            
+            if status == 'running':
+                logger.info("Another Wellington scraper instance is running. Exiting immediately.")
+                return True
+            
+            elif status == 'idle':
+                logger.info("Wellington scraper status is idle. Proceeding with execution.")
+                return False
+            
+            elif status == 'complete':
                 logger.info("Wellington scraper task is completed. No execution needed.")
                 return True
             
-            if status == 'stop':
+            elif status == 'stop':
                 logger.info("Wellington scraper task was manually stopped. Exiting.")
                 return True
-                
-            if status == 'running':
-                logger.info("Another Wellington scraper instance is running. Exiting.")
-                return True
             
-            # For 'idle' status, we allow execution to start a new task
-            if status == 'idle':
-                logger.info("Status is idle. Ready to start execution.")
+            else:
+                logger.warning(f"Unknown status '{status}', proceeding with execution")
                 return False
                 
         return False
     except Exception as e:
-        logger.error(f"Error checking if Wellington scraper is already running: {e}")
+        logger.error(f"Error checking Wellington scraper status: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
         # In case of error, assume not running to avoid blocking legitimate runs
         return False

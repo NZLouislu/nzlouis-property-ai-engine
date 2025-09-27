@@ -185,37 +185,46 @@ def update_last_processed_id(last_id):
 # Function to check if another instance is already running
 def is_already_running():
     """
-    Check if another instance of the image updater is already running or task status.
-    Uses the scraping_progress table to store a lock timestamp.
+    Check Property Image scraper status with immediate decision (no waiting):
+    - If 'running': exit immediately 
+    - If 'idle': proceed with execution
+    - If 'complete' or 'stop': exit (task finished or stopped)
     """
     supabase = create_supabase_client()
     try:
-        # Get the lock timestamp for image updater (id=1)
+        # Get the status for Property Image scraper (id=1)
         response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 1).execute()
         if response.data and len(response.data) > 0:
             status = response.data[0].get('status', 'idle')
+            updated_at = response.data[0].get('updated_at', '')
             
-            if status == 'complete':
-                logger.info("Task is completed. No execution needed.")
-                return True
-            
-            if status == 'stop':
-                logger.info("Task was manually stopped. Exiting.")
-                return True
+            logger.info(f"Property Image scraper status: {status} (updated: {updated_at})")
             
             if status == 'running':
-                logger.info("Another instance is running. Skipping execution.")
+                logger.info("Another Property Image scraper instance is running. Exiting immediately.")
                 return True
             
-            # For 'idle' status, we allow execution to start a new task
-            if status == 'idle':
-                logger.info("Status is idle. Ready to start execution.")
+            elif status == 'idle':
+                logger.info("Property Image scraper status is idle. Proceeding with execution.")
                 return False
             
+            elif status == 'complete':
+                logger.info("Property Image scraper task is completed. No execution needed.")
+                return True
+            
+            elif status == 'stop':
+                logger.info("Property Image scraper task is manually stopped. Skipping execution.")
+                return True
+            
+            else:
+                logger.warning(f"Unknown status '{status}', proceeding with execution")
+                return False
+                
         return False
     except Exception as e:
-        logger.error(f"Error checking if already running: {e}")
+        logger.error(f"Error checking Property Image scraper status: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
+        # In case of error, assume not running to avoid blocking legitimate runs
         return False
 
 def update_lock_timestamp():
@@ -511,6 +520,14 @@ def main():
     try:
         # Check if user wants to update images or scrape new properties
         if len(sys.argv) > 1 and sys.argv[1] == 'update_images':
+            logger.info("Property Image Updater")
+            logger.info("====================")
+            
+            # 1. 手动运行后，检查数据库的状态，如果是idle，就运行，修改状态为running
+            if is_already_running():
+                logger.info("Property Image updater cannot start - exiting")
+                return
+            
             logger.info("Starting property image update process")
             # Create progress table if it doesn't exist
             create_scraping_progress_table()
@@ -531,7 +548,7 @@ def main():
     except Exception as e:
         logger.error(f"Unexpected error in main execution: {str(e)}")
         logger.error(f"Error details: {traceback.format_exc()}")
-        # Clear the lock on error in main function
+        # 4. 意外退出或网络原因，错误等，设置对应id的状态为idle，退出
         clear_lock()
         sys.exit(1)
 

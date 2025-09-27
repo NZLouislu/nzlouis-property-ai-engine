@@ -109,36 +109,44 @@ def update_last_processed_page(last_page):
 # Function to check if another instance is already running
 def is_already_running():
     """
-    Check if another instance of the Auckland scraper is already running or task status.
-    Uses the scraping_progress table to store a lock timestamp.
+    Check Auckland scraper status with immediate decision (no waiting):
+    - If 'running': exit immediately 
+    - If 'idle': proceed with execution
+    - If 'complete' or 'stop': exit (task finished or stopped)
     """
     supabase = create_supabase_client()
     try:
-        # Get the lock timestamp and status for Auckland scraper (id=2)
+        # Get the status for Auckland scraper (id=2)
         response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 2).execute()
         if response.data and len(response.data) > 0:
             status = response.data[0].get('status', 'idle')
+            updated_at = response.data[0].get('updated_at', '')
             
-            if status == 'complete':
+            logger.info(f"Auckland scraper status: {status} (updated: {updated_at})")
+            
+            if status == 'running':
+                logger.info("Another Auckland scraper instance is running. Exiting immediately.")
+                return True
+            
+            elif status == 'idle':
+                logger.info("Auckland scraper status is idle. Proceeding with execution.")
+                return False
+            
+            elif status == 'complete':
                 logger.info("Auckland scraper task is completed. No execution needed.")
                 return True
             
-            if status == 'stop':
+            elif status == 'stop':
                 logger.info("Auckland scraper task was manually stopped. Exiting.")
                 return True
-                
-            if status == 'running':
-                logger.info("Another Auckland scraper instance is running. Exiting.")
-                return True
             
-            # For 'idle' status, we allow execution to start a new task
-            if status == 'idle':
-                logger.info("Status is idle. Ready to start execution.")
+            else:
+                logger.warning(f"Unknown status '{status}', proceeding with execution")
                 return False
                 
         return False
     except Exception as e:
-        logger.error(f"Error checking if Auckland scraper is already running: {e}")
+        logger.error(f"Error checking Auckland scraper status: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
         # In case of error, assume not running to avoid blocking legitimate runs
         return False

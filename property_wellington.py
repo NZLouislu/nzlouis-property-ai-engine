@@ -368,36 +368,44 @@ def scrape_properties(suburb_url, city, suburb_name):
 
 def is_already_running():
     """
-    Check if another instance of the PropertyValue Wellington scraper is already running or task status.
-    Uses the scraping_progress table to store a lock timestamp.
+    Check PropertyValue Wellington scraper status with immediate decision (no waiting):
+    - If 'running': exit immediately 
+    - If 'idle': proceed with execution
+    - If 'complete' or 'stop': exit (task finished or stopped)
     """
     supabase = create_supabase_client()
     try:
-        # Get the lock timestamp and status for PropertyValue Wellington scraper (id=5)
+        # Get the status for PropertyValue Wellington scraper (id=5)
         response = supabase.table('scraping_progress').select('updated_at, status').eq('id', 5).execute()
         if response.data and len(response.data) > 0:
             status = response.data[0].get('status', 'idle')
+            updated_at = response.data[0].get('updated_at', '')
             
-            if status == 'complete':
+            logger.info(f"PropertyValue Wellington scraper status: {status} (updated: {updated_at})")
+            
+            if status == 'running':
+                logger.info("Another PropertyValue Wellington scraper instance is running. Exiting immediately.")
+                return True
+            
+            elif status == 'idle':
+                logger.info("PropertyValue Wellington scraper status is idle. Proceeding with execution.")
+                return False
+            
+            elif status == 'complete':
                 logger.info("PropertyValue Wellington scraper task is completed. No execution needed.")
                 return True
             
-            if status == 'stop':
+            elif status == 'stop':
                 logger.info("PropertyValue Wellington scraper task is manually stopped. Skipping execution.")
                 return True
             
-            if status == 'running':
-                logger.info("Another PropertyValue Wellington scraper instance is running. Exiting.")
-                return True
-            
-            # For 'idle' status, we allow execution to start a new task
-            if status == 'idle':
-                logger.info("Status is idle. Ready to start execution.")
+            else:
+                logger.warning(f"Unknown status '{status}', proceeding with execution")
                 return False
                 
         return False
     except Exception as e:
-        logger.error(f"Error checking if PropertyValue Wellington scraper is already running: {e}")
+        logger.error(f"Error checking PropertyValue Wellington scraper status: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
         # In case of error, assume not running to avoid blocking legitimate runs
         return False
