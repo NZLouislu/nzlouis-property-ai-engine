@@ -59,6 +59,19 @@ def force_reset_expired_status(task_id=None):
         reset_count = 0
         for record in response.data:
             script_id = record['id']
+            updated_at = record.get('updated_at')
+            
+            # 检查是否超过30分钟未更新
+            if updated_at:
+                from dateutil import parser
+                last_update = parser.parse(updated_at)
+                now = datetime.now(timezone.utc)
+                time_diff = now - last_update
+                
+                # 只有超过30分钟未更新的任务才重置
+                if time_diff <= timedelta(minutes=30):
+                    print(f"⚠️ 任务 ID {script_id} 正在运行中 ({time_diff} 前更新)，跳过重置")
+                    continue
             
             # 重置为idle
             supabase.table('scraping_progress').update({
@@ -69,7 +82,7 @@ def force_reset_expired_status(task_id=None):
             print(f"✓ 重置任务状态: ID {script_id} (running → idle)")
             reset_count += 1
         
-        print(f"✓ 总共重置了 {reset_count} 个运行状态")
+        print(f"✓ 总共重置了 {reset_count} 个过期的运行状态")
         print("✓ 状态重置完成，任务可以开始执行")
             
     except Exception as e:

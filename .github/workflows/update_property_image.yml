@@ -62,14 +62,15 @@ jobs:
           print(f'Current status: {status}')
           print(f'Last updated: {updated_at}')
           
-          # If status is running, check if it's expired (more than 6 hours old)
+          # If status is running, check if it's expired (more than 30 minutes old)
           if status == 'running' and updated_at:
               from dateutil import parser
               last_update = parser.parse(updated_at)
               now = datetime.now(timezone.utc)
               time_diff = now - last_update
               
-              if time_diff > timedelta(hours=6):
+              # Use 30 minutes as expiration time to match the script's expected behavior
+              if time_diff > timedelta(minutes=30):
                   print(f'Status has been running for {time_diff}, resetting to idle')
                   supabase.table('scraping_progress').update({
                       'status': 'idle',

@@ -572,135 +572,36 @@ def main():
     Main function to start the scraping process.
     """
     try:
-        logger.info("Real Estate Rent Scraper")
+        logger.info("Rent Real Estate Scraper")
         logger.info("========================")
         
-        # 1. 手动运行后，检查数据库的状态，如果是idle，就运行，修改状态为running
+        # Check if another instance is already running
         if is_already_running():
             logger.info("Rent scraper cannot start - exiting")
             return
         
-        # Read base URL from environment variables
-        # REALESTATE_RENT_URL should be the full rental URL, no need to append /rental
-        base_url = os.getenv("REALESTATE_RENT_URL")
+        # Read base URL from environment variables and append /rental
+        base_url = os.getenv("REALESTATE_URL") or os.getenv("REALESTATE_RENT_URL")
         if not base_url:
-            # Fallback to REALESTATE_URL if REALESTATE_RENT_URL is not set
-            base_url = os.getenv("REALESTATE_URL")
-            if not base_url:
-                raise ValueError("REALESTATE_RENT_URL or REALESTATE_URL environment variable is not set")
-            # If using REALESTATE_URL, we need to append /rental
+            raise ValueError("REALESTATE_URL or REALESTATE_RENT_URL environment variable must be set")
+        
+        # If using REALESTATE_URL, we need to append /rental
+        if "REALESTATE_URL" in os.environ:
             main_url = f"{base_url}/rental"
         else:
             # If using REALESTATE_RENT_URL, it should already include /rental
             main_url = base_url
         
-def main():
-    """
-    Main function to start the scraping process.
-    """
-    try:
-        logger.info("Wellington Real Estate Scraper")
-        logger.info("==============================")
-        
-        # 1. 手动运行后，检查数据库的状态，如果是idle，就运行，修改状态为running
-        if is_already_running():
-            logger.info("Wellington scraper cannot start - exiting")
-            return
-        
-        # Read base URL from environment variables and append /wellington
-        base_url = os.getenv("REALESTATE_URL")
-        if not base_url:
-            raise ValueError("REALESTATE_URL environment variable is not set")
-        main_url = f"{base_url}/wellington"
-        
-        max_pages = 99
+        max_pages = 412
         scrape_properties(main_url, max_pages)
+        mark_complete()
         logger.info("Scraping process completed successfully")
     except Exception as e:
         logger.error(f"Error in main function: {e}")
-        logger.error(f"Error details: {traceback.format_exc()}")
-        # 4. 意外退出或网络原因，错误等，设置对应id的状态为idle，退出
-        clear_lock()
-        raise
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        logger.error(f"Unexpected error in script execution: {e}")
-        logger.error(f"Error details: {traceback.format_exc()}")
-        # 4. 意外退出或网络原因，错误等，设置对应id的状态为idle，退出
-        clear_lock()
-        exit(1)
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        logger.error(f"Unexpected error in script execution: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
         # Clear the lock on error in main execution
         clear_lock()
-        exit(1)
-=======
-        max_pages = 412
-        scrape_properties(main_url, max_pages)
-        logger.info("Scraping process completed successfully")
-    except Exception as e:
-        logger.error(f"Error in main function: {e}")
-        logger.error(f"Error details: {traceback.format_exc()}")
-        # 4. 意外退出或网络原因，错误等，设置对应id的状态为idle，退出
-        clear_lock()
         raise
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        logger.error(f"Unexpected error in script execution: {e}")
-        logger.error(f"Error details: {traceback.format_exc()}")
-        # 4. 意外退出或网络原因，错误等，设置对应id的状态为idle，退出
-        clear_lock()
-        exit(1)
-=======
-def main():
-    """
-    Main function to start the scraping process.
-    """
-    try:
-        logger.info("Wellington Real Estate Scraper")
-        logger.info("==============================")
-        
-        # 1. 手动运行后，检查数据库的状态，如果是idle，就运行，修改状态为running
-        if is_already_running():
-            logger.info("Wellington scraper cannot start - exiting")
-            return
-        
-        # Read base URL from environment variables and append /wellington
-        base_url = os.getenv("REALESTATE_URL")
-        if not base_url:
-            raise ValueError("REALESTATE_URL environment variable is not set")
-        main_url = f"{base_url}/wellington"
-        
-        max_pages = 99
-        scrape_properties(main_url, max_pages)
-        logger.info("Scraping process completed successfully")
-    except Exception as e:
-        logger.error(f"Error in main function: {e}")
-        logger.error(f"Error details: {traceback.format_exc()}")
-        # 4. 意外退出或网络原因，错误等，设置对应id的状态为idle，退出
-        clear_lock()
-        raise
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        logger.error(f"Unexpected error in script execution: {e}")
-        logger.error(f"Error details: {traceback.format_exc()}")
-        # 4. 意外退出或网络原因，错误等，设置对应id的状态为idle，退出
-        clear_lock()
-        exit(1)
 
 if __name__ == "__main__":
     try:
