@@ -473,9 +473,20 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                 time.sleep(60)  # Wait for 1 minute before checking again
                 update_lock_timestamp()  # Update lock timestamp to indicate we're still running
 
-        # If we finished normally (not due to timeout), mark as complete
-        if elapsed_time <= max_runtime_seconds:
-            mark_complete()
+        # Mark as complete if we finished processing all available data
+        # regardless of time elapsed (unless we hit timeout during processing)
+        if has_data_to_process:
+            try:
+                supabase = create_supabase_client()
+                supabase.table('scraping_progress').update({
+                    'status': 'complete',
+                    'updated_at': 'now()'
+                }).eq('id', 2).execute()
+                logger.info("Auckland scraper task marked as complete.")
+            except Exception as e:
+                logger.error(f"Error marking Auckland scraper task as complete: {e}")
+        else:
+            logger.info("No data processed, keeping current status")
             
     except Exception as e:
         logger.error(f"Error in scraping process: {e}")
