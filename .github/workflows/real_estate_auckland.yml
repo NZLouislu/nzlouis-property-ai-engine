@@ -98,15 +98,10 @@ jobs:
           key = os.environ.get('SUPABASE_KEY')
           supabase: Client = create_client(url, key)
           
-          from datetime import datetime, timezone
-          now = datetime.now(timezone.utc).isoformat()
-          res = supabase.table('scraping_progress').update({
+          supabase.table('scraping_progress').update({
               'status': 'running',
-              'updated_at': now
-          }).eq('id', 2).eq('status', 'idle').execute()
-          if not res.data:
-              print('Another action is already running. Exiting...')
-              exit(1)
+              'updated_at': 'now()'
+          }).eq('id', 2).execute()
           print('Status set to running')
           "
 
@@ -128,11 +123,9 @@ jobs:
           supabase: Client = create_client(url, key)
           
           try:
-              from datetime import datetime, timezone
-              now = datetime.now(timezone.utc).isoformat()
               supabase.table('scraping_progress').update({
                   'status': 'idle',
-                  'updated_at': now
+                  'updated_at': 'now()'
               }).eq('id', 2).execute()
               print('Status reset to idle successfully')
           except Exception as e:

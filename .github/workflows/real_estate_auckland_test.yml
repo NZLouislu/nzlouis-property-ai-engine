@@ -37,7 +37,7 @@ jobs:
           from supabase import create_client
           url, key = os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY')
           sup = create_client(url, key)
-          data = sup.table('scraping_progress').select('status').eq('id',2).execute().data
+          data = sup.table('scraping_progress').select('status').eq('id',9).execute().data
           status = data[0]['status'] if data else 'idle'
           print(f"::set-output name=status::{status}")
           EOF
@@ -53,7 +53,7 @@ jobs:
           sup.table('scraping_progress').update({
             'status': 'running',
             'updated_at': 'now()'
-          }).eq('id', 2).execute()
+          }).eq('id', 7).execute()
           EOF
 
       - name: Run scraper
@@ -78,7 +78,7 @@ jobs:
               sup.table('scraping_progress').update({
                   'status': 'idle',
                   'updated_at': 'now()'
-              }).eq('id', 2).execute()
+              }).eq('id', 7).execute()
           except Exception as e:
               print(f"Error resetting status: {str(e)}")
           EOF
