@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: scrape-realestate-wellington
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   scrape:
