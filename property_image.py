@@ -333,9 +333,8 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
         batch_size (int): Number of properties to process in each batch
         max_runtime_hours (float): Maximum runtime in hours before stopping (default 5.5 hours to stay within 6-hour limit)
     """
-    # GitHub Actions already handles status management, so we don't need to check here
-    # Just update lock timestamp to indicate we're running
-    update_lock_timestamp()
+    # Status management is handled by GitHub Actions workflow
+    # No need to update status here
     
     should_continue = True
     
@@ -369,8 +368,7 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
                 should_continue = True
                 break
             
-            # Update lock timestamp periodically to indicate we're still running
-            update_lock_timestamp()
+            # Status updates handled by GitHub Actions workflow
             
             # Fetch properties that don't have cover_image_url or have null cover_image_url
             # Use pagination and ordering to process in batches
@@ -413,8 +411,7 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
                     should_continue = True
                     break
                 
-                # Update lock timestamp periodically to indicate we're still running
-                update_lock_timestamp()
+                # Status updates handled by GitHub Actions workflow
                 
                 property_id = property_record['id']
                 last_id_in_batch = property_id
@@ -488,19 +485,11 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
                 
         logger.info(f"Finished processing. Total properties processed: {processed_count}")
         
-        # Set appropriate status based on completion
+        # Status management handled by GitHub Actions workflow
         if should_continue:
-            # For normal timeout, set status to 'idle' instead of 'stop'
-            supabase.table('scraping_progress').update({
-                'status': 'idle',
-                'updated_at': 'now()'
-            }).eq('id', 1).execute()
-            logger.info("Triggering next workflow run to continue processing...")
-            trigger_next_workflow()
+            logger.info("Processing will continue in next workflow run...")
         else:
-            # Task completely finished - mark as complete
-            mark_complete()
-            logger.info("All image updates completed. Task status set to complete.")
+            logger.info("All image updates completed.")
             
     except Exception as e:
         logger.error(f"Error fetching properties from Supabase: {str(e)}")
@@ -508,8 +497,7 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
         # Save progress before exiting
         if last_id_in_batch:
             update_last_processed_id(last_id_in_batch)
-        # Clear the lock on error
-        clear_lock()
+        # Error handling - status will be reset by GitHub Actions workflow
         # Re-raise the exception so it's visible in GitHub Actions logs
         raise
 
@@ -523,10 +511,8 @@ def main():
             logger.info("Property Image Updater")
             logger.info("====================")
             
-            # 1. 手动运行后，检查数据库的状态，如果是idle，就运行，修改状态为running
-            if is_already_running():
-                logger.info("Property Image updater cannot start - exiting")
-                return
+            # Status management is handled by GitHub Actions workflow
+            # Skip the status check when running from GitHub Actions
             
             logger.info("Starting property image update process")
             # Create progress table if it doesn't exist

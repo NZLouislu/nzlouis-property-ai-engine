@@ -358,8 +358,7 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
         max_runtime_hours (float): Maximum runtime in hours before stopping (default 5.5 hours)
     """
     # GitHub Actions already handles status management, so we don't need to check here
-    # Just update lock timestamp to indicate we're running
-    update_lock_timestamp()
+    # Status management is handled by GitHub Actions workflow
     
     # Remove Redis client
     # redis_client = create_redis_client()  # Instantiate the Redis client
@@ -426,8 +425,7 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
                         logger.error(f"Error updating status to 'idle': {e}")
                     break
                 
-                # Update lock timestamp periodically to indicate we're still running
-                update_lock_timestamp()
+                # Status updates handled by GitHub Actions workflow
                 
                 try:
                     url = f"{main_url}?page={page_num}"
@@ -479,7 +477,7 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
             while has_data_to_process and (time.time() - start_time) < max_runtime_seconds:
                 logger.info("Processed all available pages. Waiting before next cycle.")
                 time.sleep(60)  # Wait for 1 minute before checking again
-                update_lock_timestamp()  # Update lock timestamp to indicate we're still running
+                # Status updates handled by GitHub Actions workflow
 
         # Mark as complete if we finished processing all available data
         # regardless of time elapsed (unless we hit timeout during processing)
@@ -502,8 +500,7 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
         # Save progress before exiting
         if 'page_num' in locals():
             update_last_processed_page(page_num)
-        # Clear the lock when there's an error
-        clear_lock()
+        # Error handling - status will be reset by GitHub Actions workflow
         raise
     finally:
         # If we haven't processed any data, we can exit early
@@ -555,10 +552,8 @@ def main():
         logger.info("Auckland Real Estate Scraper")
         logger.info("===========================")
         
-        # 1. 手动运行后，检查数据库的状态，如果是idle，就运行，修改状态为running
-        if is_already_running():
-            logger.info("Auckland scraper cannot start - exiting")
-            return
+        # Status management is handled by GitHub Actions workflow
+        # Skip the status check when running from GitHub Actions
         
         # Read base URL from environment variables and append /auckland
         base_url = os.getenv("REALESTATE_URL")
@@ -572,8 +567,7 @@ def main():
     except Exception as e:
         logger.error(f"Error in main function: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
-        # 4. 意外退出或网络原因，错误等，设置对应id的状态为idle，退出
-        clear_lock()
+        # Error handling - status will be reset by GitHub Actions workflow
         raise
 
 if __name__ == "__main__":
@@ -582,6 +576,5 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Unexpected error in script execution: {e}")
         logger.error(f"Error details: {traceback.format_exc()}")
-        # Clear the lock on error in main execution
-        clear_lock()
+        # Error handling - status will be reset by GitHub Actions workflow
         exit(1)
