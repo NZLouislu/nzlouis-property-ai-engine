@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: update-property-images
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   update-images:
