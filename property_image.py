@@ -115,9 +115,17 @@ def get_last_processed_id():
     supabase = create_supabase_client()
     try:
         # First, try to get the record with id=1 for image updater
-        response = supabase.table('scraping_progress').select('last_processed_id').eq('id', 1).execute()
+        response = supabase.table('scraping_progress').select('last_processed_id, status').eq('id', 1).execute()
         if response.data and len(response.data) > 0:
-            last_processed_id = response.data[0].get('last_processed_id')
+            record = response.data[0]
+            status = record.get('status', 'idle')
+            last_processed_id = record.get('last_processed_id')
+            
+            # If status is complete, we should start from the beginning
+            if status == 'complete':
+                logger.info("Task was completed previously. Starting from the beginning.")
+                return None
+            
             # Return the ID if it's not None or empty
             if last_processed_id:
                 logger.info(f"Resuming from ID: {last_processed_id}")
@@ -485,6 +493,14 @@ def update_property_images(batch_size=1000, max_runtime_hours=5.5):
                 
         logger.info(f"Finished processing. Total properties processed: {processed_count}")
         
+        # If we've processed all properties and there were properties to process, mark as complete
+        if not should_continue and has_data_to_process:
+            logger.info("All properties have been processed. Marking task as complete.")
+            mark_complete()
+        elif not has_data_to_process:
+            logger.info("No properties without cover images found. Marking task as complete.")
+            mark_complete()
+            
         # Status management handled by GitHub Actions workflow
         if should_continue:
             logger.info("Processing will continue in next workflow run...")

@@ -50,9 +50,17 @@ def get_last_processed_page():
     supabase = create_supabase_client()
     try:
         # Try to get the record with id=3 for Wellington real estate
-        response = supabase.table('scraping_progress').select('last_processed_id').eq('id', 3).execute()
+        response = supabase.table('scraping_progress').select('last_processed_id, status').eq('id', 3).execute()
         if response.data and len(response.data) > 0:
-            last_processed_id = response.data[0].get('last_processed_id')
+            record = response.data[0]
+            status = record.get('status', 'idle')
+            last_processed_id = record.get('last_processed_id')
+            
+            # If status is complete, we should start from the beginning
+            if status == 'complete':
+                logger.info("Task was completed previously. Starting from the beginning.")
+                return 0
+            
             # Return the page number if it's not None or empty
             if last_processed_id:
                 page_num = int(last_processed_id)

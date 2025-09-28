@@ -118,12 +118,38 @@ jobs:
           python -c "
           import os
           from supabase import create_client, Client
+          from datetime import datetime, timezone, timedelta
+          from dateutil import parser
           
           url = os.environ.get('SUPABASE_URL')
           key = os.environ.get('SUPABASE_KEY')
           supabase: Client = create_client(url, key)
           
           try:
+              # Check current status before resetting
+              result = supabase.table('scraping_progress').select('status, updated_at').eq('id', 5).execute()
+              if result.data:
+                  record = result.data[0]
+                  status = record.get('status')
+                  updated_at = record.get('updated_at')
+                  
+                  # If status is already 'complete', don't reset it to 'idle'
+                  if status == 'complete':
+                      print('Task is already marked as complete. Not resetting status.')
+                      exit(0)
+                  
+                  # If status is 'running' but updated recently, keep it as is
+                  if status == 'running' and updated_at:
+                      last_update = parser.parse(updated_at)
+                      now = datetime.now(timezone.utc)
+                      time_diff = now - last_update
+                      
+                      # If updated within last 10 minutes, assume it's still running
+                      if time_diff <= timedelta(minutes=10):
+                          print(f'Task is still running (updated {time_diff} ago). Not resetting status.')
+                          exit(0)
+              
+              # Reset status to idle for all other cases
               supabase.table('scraping_progress').update({
                   'status': 'idle',
                   'updated_at': 'now()'

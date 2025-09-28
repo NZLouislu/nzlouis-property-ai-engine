@@ -50,9 +50,17 @@ def get_last_processed_page():
     supabase = create_supabase_client()
     try:
         # Try to get the record with id=2 for Auckland real estate
-        response = supabase.table('scraping_progress').select('last_processed_id').eq('id', 2).execute()
+        response = supabase.table('scraping_progress').select('last_processed_id, status').eq('id', 2).execute()
         if response.data and len(response.data) > 0:
-            last_processed_id = response.data[0].get('last_processed_id')
+            record = response.data[0]
+            status = record.get('status', 'idle')
+            last_processed_id = record.get('last_processed_id')
+            
+            # If status is complete, we should start from the beginning
+            if status == 'complete':
+                logger.info("Task was completed previously. Starting from the beginning.")
+                return 0
+            
             # Return the page number if it's not None or empty
             if last_processed_id:
                 page_num = int(last_processed_id)
@@ -370,12 +378,6 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
     # Get the last processed page to resume from where we left off
     start_page = get_last_processed_page()
     
-    # If we've reached the end, reset to start from beginning
-    if start_page >= max_pages:
-        logger.info(f"Reached end of pages ({start_page}), resetting to start from beginning")
-        start_page = 0
-        update_last_processed_page(0)
-    
     # Calculate maximum runtime
     start_time = time.time()
     max_runtime_seconds = max_runtime_hours * 3600  # Convert hours to seconds
@@ -481,7 +483,7 @@ def scrape_properties(main_url, max_pages, max_runtime_hours=5.5):
 
         # Mark as complete if we finished processing all available data
         # regardless of time elapsed (unless we hit timeout during processing)
-        if has_data_to_process:
+        if page_num >= max_pages and has_data_to_process:
             try:
                 supabase = create_supabase_client()
                 supabase.table('scraping_progress').update({
