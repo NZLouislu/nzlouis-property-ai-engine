@@ -1,0 +1,4 @@
+property_id,address,suburb,predicted_status,confidence_score,current_status,bedrooms,price
+0d8efc5a6dc46c671daab4de0ae3de04,Unknown Address,Khandallah,not for Sale,0.533665782751309,For Sale,3,1280000
+1d6bc3c13affde09a98bcfa84afd5f36,Unknown Address,Khandallah,not for Sale,0.533665782751309,For Sale,3,1280000
+a848b6520af0cdeecdee116bd385bb04,Unknown Address,Khandallah,not for Sale,0.533665782751309,For Sale,3,1280000

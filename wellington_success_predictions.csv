@@ -1,0 +1,6 @@
+property_id,address,suburb,predicted_status,confidence_score,bedrooms,year_built,price,is_rented
+3001,"15 Agra Crescent, Khandallah, Wellington",Khandallah,for Sale,0.985,4,2015,1600000,False
+3005,"12 The Terrace, Wellington Central, Wellington",Wellington Central,for Sale,0.9,2,2019,850000,False
+3003,"78 Riddiford Street, Newtown, Wellington",Newtown,not for Sale,0.845,2,1965,550000,True
+3002,"45 Oriental Parade, Oriental Bay, Wellington",Oriental Bay,for Sale,0.82,3,2018,2200000,False
+3004,"23 Kelburn Parade, Kelburn, Wellington",Kelburn,for Sale,0.81,4,2020,1800000,False
