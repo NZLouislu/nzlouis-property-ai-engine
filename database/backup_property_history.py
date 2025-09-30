@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+PROPERTY_HISTORY_SUPABASE_URL = os.getenv("PROPERTY_HISTORY_SUPABASE_URL")
+PROPERTY_HISTORY_SUPABASE_KEY = os.getenv("PROPERTY_HISTORY_SUPABASE_KEY")
 BACKUP_DIR = "database/backup"
 CHUNK_SIZE = 500
 
@@ -37,6 +39,11 @@ def create_supabase_client() -> Client:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise ValueError("SUPABASE_URL and SUPABASE_KEY environment variables must be set")
     return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def create_property_history_supabase_client() -> Client:
+    if not PROPERTY_HISTORY_SUPABASE_URL or not PROPERTY_HISTORY_SUPABASE_KEY:
+        raise ValueError("PROPERTY_HISTORY_SUPABASE_URL and PROPERTY_HISTORY_SUPABASE_KEY environment variables must be set")
+    return create_client(PROPERTY_HISTORY_SUPABASE_URL, PROPERTY_HISTORY_SUPABASE_KEY)
 
 def ensure_backup_directory():
     if not os.path.exists(BACKUP_DIR):
@@ -94,16 +101,16 @@ def update_backup_status(status: str, message: str = ""):
 
 def get_table_statistics():
     try:
-        supabase = create_supabase_client()
+        property_history_supabase = create_property_history_supabase_client()
         
-        count_response = supabase.table('property_history').select('id', count='exact').execute()
+        count_response = property_history_supabase.table('property_history').select('id', count='exact').execute()
         total_records = count_response.count if hasattr(count_response, 'count') else 0
         
         try:
-            earliest_response = supabase.table('property_history').select('created_at').order('created_at', desc=False).limit(1).execute()
+            earliest_response = property_history_supabase.table('property_history').select('created_at').order('created_at', desc=False).limit(1).execute()
             earliest_date = earliest_response.data[0]['created_at'] if earliest_response.data else 'Unknown'
             
-            latest_response = supabase.table('property_history').select('created_at').order('created_at', desc=True).limit(1).execute()
+            latest_response = property_history_supabase.table('property_history').select('created_at').order('created_at', desc=True).limit(1).execute()
             latest_date = latest_response.data[0]['created_at'] if latest_response.data else 'Unknown'
             
             return {
@@ -129,7 +136,7 @@ def get_table_statistics():
 
 def backup_property_history_data(run_timestamp: str) -> Dict[str, str]:
     try:
-        supabase = create_supabase_client()
+        property_history_supabase = create_property_history_supabase_client()
         timestamp = run_timestamp
         
         logger.info("Starting property_history table backup...")
@@ -139,7 +146,7 @@ def backup_property_history_data(run_timestamp: str) -> Dict[str, str]:
         total_records = 0
         
         while True:
-            response = supabase.table('property_history').select("*").range(offset, offset + CHUNK_SIZE - 1).execute()
+            response = property_history_supabase.table('property_history').select("*").range(offset, offset + CHUNK_SIZE - 1).execute()
             
             if not response.data:
                 break
@@ -261,6 +268,9 @@ def main():
         if not SUPABASE_URL or not SUPABASE_KEY:
             raise ValueError("SUPABASE_URL and SUPABASE_KEY environment variables must be set")
         
+        if not PROPERTY_HISTORY_SUPABASE_URL or not PROPERTY_HISTORY_SUPABASE_KEY:
+            raise ValueError("PROPERTY_HISTORY_SUPABASE_URL and PROPERTY_HISTORY_SUPABASE_KEY environment variables must be set")
+        
         ensure_backup_directory()
         
         update_backup_status('running', f'Starting property_history table backup | backup_id:{run_timestamp}')
@@ -314,6 +324,7 @@ def main():
         print(f"✗ Error: {str(e)}")
         print("\nPlease check:")
         print("- SUPABASE_URL and SUPABASE_KEY environment variables are set correctly")
+        print("- PROPERTY_HISTORY_SUPABASE_URL and PROPERTY_HISTORY_SUPABASE_KEY environment variables are set correctly")
         print("- Network connectivity to Supabase")
         print("- property_history table exists and is accessible")
         exit(1)

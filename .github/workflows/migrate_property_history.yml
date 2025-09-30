@@ -1,8 +1,8 @@
 name: Migrate Property History Data completed
 
 on:
-  # schedule:
-  #   - cron: '0 */6 * * *'
+  schedule:
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -32,6 +32,8 @@ jobs:
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        PROPERTY_HISTORY_SUPABASE_URL: ${{ secrets.PROPERTY_HISTORY_SUPABASE_URL }}
+        PROPERTY_HISTORY_SUPABASE_KEY: ${{ secrets.PROPERTY_HISTORY_SUPABASE_KEY }}
       run: |
         python -c "
         import os
@@ -100,6 +102,8 @@ jobs:
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        PROPERTY_HISTORY_SUPABASE_URL: ${{ secrets.PROPERTY_HISTORY_SUPABASE_URL }}
+        PROPERTY_HISTORY_SUPABASE_KEY: ${{ secrets.PROPERTY_HISTORY_SUPABASE_KEY }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_ACTIONS: true
@@ -121,14 +125,19 @@ jobs:
         key = os.environ.get('SUPABASE_KEY')
         supabase: Client = create_client(url, key)
         
-        try:
-            supabase.table('scraping_progress').update({
-                'status': 'idle',
-                'updated_at': 'now()'
-            }).eq('id', 6).execute()
-            print('Status reset to idle successfully')
-        except Exception as e:
-            print(f'Failed to reset status: {e}')
+        # Check if the task is complete before resetting to idle
+        result = supabase.table('scraping_progress').select('status').eq('id', 6).execute()
+        if result.data and result.data[0]['status'] == 'complete':
+            print('Task is already complete, not resetting to idle')
+        else:
+            try:
+                supabase.table('scraping_progress').update({
+                    'status': 'idle',
+                    'updated_at': 'now()'
+                }).eq('id', 6).execute()
+                print('Status reset to idle successfully')
+            except Exception as e:
+                print(f'Failed to reset status: {e}')
         "
 
     - name: Upload logs
